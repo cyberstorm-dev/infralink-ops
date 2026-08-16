@@ -1,4 +1,16 @@
 steps:
+  test-python:
+    image: python:3.12-slim-bookworm
+    commands:
+      - python -m pip install --disable-pip-version-check -e '.[dev]'
+      - python -m ruff check src tests
+      - python -m ruff format --check src tests
+      - python -m pytest -q
+      - python -m build
+      - python -m venv /tmp/infralink-ops-wheel
+      - /tmp/infralink-ops-wheel/bin/pip install --disable-pip-version-check dist/*.whl
+      - cd /tmp && /tmp/infralink-ops-wheel/bin/python -c 'import infralink_ops'
+
   test-receive-gate:
     image: docker:28-cli
     commands:

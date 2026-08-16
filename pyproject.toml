@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "infralink-ops"
+version = "0.1.0"
+description = "Operational runtime for direct Infralink registry projections"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "infralink @ https://github.com/cyberstorm-dev/infralink/releases/download/v0.5.6/infralink-0.5.6-py3-none-any.whl#sha256=7655b355ceeee8b5173bb543412f7d02ce46ce4ccc2401a7ead2db45abc879d9",
+]
+
+[project.optional-dependencies]
+dev = ["build>=1.2", "pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+infralink-ops = "infralink_ops.cli:run"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/infralink_ops"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
