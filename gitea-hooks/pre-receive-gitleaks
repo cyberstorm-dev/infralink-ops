@@ -1,0 +1,25 @@
+#!/bin/sh
+# Runs inside Gitea's generated pre-receive.d wrapper.
+set -eu
+
+zero_oid=0000000000000000000000000000000000000000
+report=$(mktemp)
+trap 'rm -f "$report"' EXIT HUP INT TERM
+
+while IFS=' ' read -r old_oid new_oid ref_name; do
+    test -n "$new_oid" || continue
+    test "$new_oid" = "$zero_oid" && continue
+
+    if test "$old_oid" = "$zero_oid"; then
+        log_opts="$new_oid --not --all"
+    else
+        log_opts="$old_oid..$new_oid"
+    fi
+
+    if ! gitleaks git --no-banner --redact=100 --exit-code 1 \
+        --report-format json --report-path "$report" --log-opts="$log_opts" \
+        >/dev/null 2>&1; then
+        printf '%s\n' "Push rejected: Gitleaks detected newly introduced secret material on $ref_name." >&2
+        exit 1
+    fi
+done

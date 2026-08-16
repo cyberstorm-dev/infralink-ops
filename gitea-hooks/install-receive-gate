@@ -1,0 +1,11 @@
+#!/bin/sh
+# Sync the immutable hook into all existing Gitea bare repositories.
+set -eu
+
+repository_root=${1:-/data/git/repositories}
+hook=/usr/local/lib/infralink-gitea-hooks/pre-receive-gitleaks
+
+find "$repository_root" -type d -name '*.git' -print |
+while IFS= read -r repository; do
+    install -D -m 0755 "$hook" "$repository/hooks/pre-receive.d/20-infralink-gitleaks"
+done
