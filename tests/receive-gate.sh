@@ -6,6 +6,8 @@ trap 'rm -rf "$root"' EXIT HUP INT TERM
 remote="$root/remote.git"
 client="$root/client"
 
+test -x /usr/local/bin/infralink-gitea-entrypoint
+
 git init --bare "$remote" >/dev/null
 test -x "$remote/hooks/pre-receive.d/20-infralink-gitleaks"
 mkdir -p "$remote/hooks/pre-receive.d"

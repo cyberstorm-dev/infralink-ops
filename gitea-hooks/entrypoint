@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+/usr/local/lib/infralink-gitea-hooks/install-receive-gate /data/git/repositories
+exec /usr/bin/entrypoint "$@"
