@@ -106,6 +106,8 @@ def _verified_registry_root(registry_root: Path, expected_revision: str) -> Path
     root = registry_root.resolve()
     if not root.is_dir():
         raise ValueError(f"registry root must be a directory: {registry_root}")
+    if _git_toplevel(root) != root:
+        raise ValueError(f"registry root must be the Git checkout top-level: {registry_root}")
     actual_revision = _git_revision(root)
     if actual_revision != expected_revision:
         raise ValueError(
@@ -113,6 +115,18 @@ def _verified_registry_root(registry_root: Path, expected_revision: str) -> Path
             f"expected {expected_revision}, checkout has {actual_revision}"
         )
     return root
+
+
+def _git_toplevel(root: Path) -> Path:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise ValueError(f"registry checkout has no readable Git top-level: {root}")
+    return Path(completed.stdout.strip()).resolve()
 
 
 def _registry_relative_path(root: Path, value: str, description: str) -> str:

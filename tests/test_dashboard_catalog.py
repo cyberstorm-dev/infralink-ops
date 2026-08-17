@@ -84,6 +84,18 @@ def test_loads_verified_registry_asset_and_stamps_catalog_uid_and_datasource(tmp
     )
 
 
+def test_rejects_nested_directory_inside_registry_checkout(tmp_path) -> None:
+    revision, _ = _registry_with_dashboard_catalog(tmp_path)
+    nested_directory = tmp_path / "service-catalog"
+
+    with pytest.raises(ValueError, match="registry root must be the Git checkout top-level"):
+        load_registry_dashboards(
+            nested_directory,
+            expected_revision=revision,
+            datasource="prometheus-primary",
+        )
+
+
 def test_rejects_dashboard_asset_with_mismatched_catalog_sha(tmp_path) -> None:
     revision, asset = _registry_with_dashboard_catalog(tmp_path)
     asset.write_text('{"title": "tampered"}', encoding="utf-8")
