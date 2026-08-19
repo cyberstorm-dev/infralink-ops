@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import io
+import shutil
 import subprocess
+import tarfile
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -24,11 +30,10 @@ def project_registry_observation(
     """Project one explicit typed directory from a verified registry checkout."""
 
     root = _verified_registry_root(registry_root, expected_revision)
-    source = _revision_bound_directory(
+    with _materialized_revision_directory(
         root, observation_directory, expected_revision, "observation"
-    )
-    actual_revision = _checkout_revision(root)
-    return project([source], registry_revision=actual_revision, as_of=as_of)
+    ) as source:
+        return project([source], registry_revision=expected_revision, as_of=as_of)
 
 
 def project_registry_v2_metrics(
@@ -44,10 +49,10 @@ def project_registry_v2_metrics(
     """
 
     root = _verified_registry_root(registry_root, expected_revision)
-    source = _revision_bound_directory(
+    with _materialized_revision_directory(
         root, catalog_directory, expected_revision, "V2 service catalog"
-    )
-    return project_v2_metric_contracts([source])
+    ) as source:
+        return project_v2_metric_contracts([source])
 
 
 def _verified_registry_root(registry_root: Path, expected_revision: str) -> Path:
@@ -65,22 +70,57 @@ def _verified_registry_root(registry_root: Path, expected_revision: str) -> Path
     return root
 
 
-def _revision_bound_directory(
+@contextmanager
+def _materialized_revision_directory(
     root: Path,
     relative_path: str,
     expected_revision: str,
     description: str,
-) -> Path:
+) -> Iterator[Path]:
     relative = Path(relative_path)
     if relative.is_absolute() or ".." in relative.parts:
         raise ValueError(f"{description} directory must exist below registry root: {relative_path}")
-    source = root / relative
-    if not source.is_dir():
-        raise ValueError(f"{description} directory must exist below registry root: {relative_path}")
     _ensure_directory_is_in_revision(root, relative, expected_revision)
-    _ensure_directory_has_no_symlinks(source)
-    _ensure_directory_matches_revision(root, relative, expected_revision)
-    return source
+    archive = _run_git_bytes(
+        root, ["archive", "--format=tar", expected_revision, relative.as_posix()]
+    )
+    if archive.returncode != 0:
+        raise ValueError(
+            "could not materialize source directory from asserted registry revision: "
+            f"{relative.as_posix()}"
+        )
+    with tempfile.TemporaryDirectory(prefix="infralink-ops-registry-") as temporary_directory:
+        temporary_root = Path(temporary_directory)
+        with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as tar:
+            members = tar.getmembers()
+            for member in members:
+                member_path = Path(member.name)
+                if (
+                    member.issym()
+                    or member.islnk()
+                    or member_path.is_absolute()
+                    or ".." in member_path.parts
+                ):
+                    raise ValueError(f"source directory contains symlink: {member.name}")
+                destination = temporary_root / member_path
+                if member.isdir():
+                    destination.mkdir(parents=True, exist_ok=True)
+                elif member.isfile():
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    archived_file = tar.extractfile(member)
+                    if archived_file is None:
+                        raise ValueError(f"could not materialize source file: {member.name}")
+                    with archived_file, destination.open("wb") as output:
+                        shutil.copyfileobj(archived_file, output)
+                else:
+                    raise ValueError(f"source directory contains unsupported entry: {member.name}")
+        source = temporary_root / relative
+        if not source.is_dir():
+            raise ValueError(
+                "could not materialize source directory from asserted registry revision: "
+                f"{relative.as_posix()}"
+            )
+        yield source
 
 
 def _ensure_directory_is_in_revision(root: Path, relative: Path, expected_revision: str) -> None:
@@ -92,26 +132,6 @@ def _ensure_directory_is_in_revision(root: Path, relative: Path, expected_revisi
         raise ValueError(
             f"source directory is absent from asserted registry revision: {relative.as_posix()}"
         )
-
-
-def _ensure_directory_has_no_symlinks(source: Path) -> None:
-    for path in (source, *source.rglob("*")):
-        if path.is_symlink():
-            raise ValueError(f"source directory contains symlink: {path}")
-
-
-def _ensure_directory_matches_revision(root: Path, relative: Path, expected_revision: str) -> None:
-    pathspec = relative.as_posix()
-    if _run_git(
-        root, ["diff", "--quiet", "--no-ext-diff", expected_revision, "--", pathspec]
-    ).returncode:
-        raise ValueError("source directory differs from asserted registry revision")
-    for arguments in (
-        ["ls-files", "--others", "--exclude-standard", "-z", "--", pathspec],
-        ["ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", pathspec],
-    ):
-        if _run_git(root, arguments).stdout:
-            raise ValueError("source directory differs from asserted registry revision")
 
 
 def _git_toplevel(registry_root: Path) -> Path:
@@ -134,4 +154,12 @@ def _run_git(registry_root: Path, arguments: list[str]) -> subprocess.CompletedP
         check=False,
         capture_output=True,
         text=True,
+    )
+
+
+def _run_git_bytes(registry_root: Path, arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", "-C", str(registry_root), *arguments],
+        check=False,
+        capture_output=True,
     )
