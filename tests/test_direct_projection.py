@@ -140,3 +140,88 @@ def test_rejects_a_nested_registry_directory_for_v2_metrics(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="registry root must be the Git checkout top-level"):
         project_registry_v2_metrics(source, expected_revision=revision)
+
+
+def test_rejects_v2_catalog_bytes_changed_after_the_asserted_revision(tmp_path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "test@example.invalid"], check=True
+    )
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "Test"], check=True)
+    source = tmp_path / "service-catalog" / "v2"
+    source.mkdir(parents=True)
+    catalog = source / "nginx.yml"
+    catalog.write_text("schema_version: infralink.observation/v2\n", encoding="ascii")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "v2 catalog"], check=True)
+    revision = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    catalog.write_text(
+        "schema_version: infralink.observation/v2\nservice_profiles: []\n",
+        encoding="ascii",
+    )
+
+    with pytest.raises(
+        ValueError, match="source directory differs from asserted registry revision"
+    ):
+        project_registry_v2_metrics(tmp_path, expected_revision=revision)
+
+
+def test_rejects_untracked_v2_catalog_input(tmp_path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "test@example.invalid"], check=True
+    )
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "Test"], check=True)
+    source = tmp_path / "service-catalog" / "v2"
+    source.mkdir(parents=True)
+    (source / "nginx.yml").write_text(
+        "schema_version: infralink.observation/v2\n", encoding="ascii"
+    )
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "v2 catalog"], check=True)
+    revision = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (source / "injected.yml").write_text(
+        "schema_version: infralink.observation/v2\n", encoding="ascii"
+    )
+
+    with pytest.raises(
+        ValueError, match="source directory differs from asserted registry revision"
+    ):
+        project_registry_v2_metrics(tmp_path, expected_revision=revision)
+
+
+def test_rejects_symlinked_v2_catalog_input(tmp_path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "test@example.invalid"], check=True
+    )
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "Test"], check=True)
+    source = tmp_path / "service-catalog" / "v2"
+    source.mkdir(parents=True)
+    (source / "nginx.yml").write_text(
+        "schema_version: infralink.observation/v2\n", encoding="ascii"
+    )
+    outside = tmp_path / "outside.yml"
+    outside.write_text("schema_version: infralink.observation/v2\n", encoding="ascii")
+    (source / "linked.yml").symlink_to(outside)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "v2 catalog"], check=True)
+    revision = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    with pytest.raises(ValueError, match="source directory contains symlink"):
+        project_registry_v2_metrics(tmp_path, expected_revision=revision)
