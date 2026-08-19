@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from infralink_ops.observation import project_registry_observation
+from infralink_ops.observation import project_registry_observation, project_registry_v2_metrics
 
 
 def _registry(tmp_path):
@@ -83,3 +83,60 @@ def test_rejects_a_stale_registry_checkout(tmp_path) -> None:
         )
 
     assert revision != "0" * 40
+
+
+def test_projects_v2_metrics_from_only_the_verified_catalog_directory(tmp_path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "test@example.invalid"], check=True
+    )
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "Test"], check=True)
+    source = tmp_path / "service-catalog" / "v2"
+    source.mkdir(parents=True)
+    (source / "nginx.yml").write_text(
+        """schema_version: infralink.observation/v2
+service_profiles:
+  - id: nginx
+    components:
+      - id: exporter
+        endpoints:
+          - {id: metrics, protocol: http, port: 9113}
+        metrics:
+          - id: requests
+            endpoint_id: metrics
+            path: /metrics
+            metric_name: nginx_http_requests_total
+            unit: requests
+service_instances:
+  - id: nginx
+    host_id: 11111111-1111-4111-8111-111111111111
+    profile_id: nginx
+    components:
+      - slot_id: exporter
+        endpoint_bindings:
+          - {endpoint_id: metrics, address: 100.64.0.10}
+""",
+        encoding="ascii",
+    )
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "v2 metrics"], check=True)
+    revision = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    result = project_registry_v2_metrics(tmp_path, expected_revision=revision)
+
+    assert [metric.id for metric in result.metrics] == [
+        "11111111-1111-4111-8111-111111111111/nginx/exporter/requests"
+    ]
+    assert result.metrics[0].prometheus.address == "100.64.0.10"
+
+
+def test_rejects_a_nested_registry_directory_for_v2_metrics(tmp_path) -> None:
+    source, revision = _registry(tmp_path)
+
+    with pytest.raises(ValueError, match="registry root must be the Git checkout top-level"):
+        project_registry_v2_metrics(source, expected_revision=revision)
