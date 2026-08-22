@@ -5,6 +5,12 @@ primitive for bounded Docker image retention. It accepts the selected immutable
 image reference and returns a YAML/HATEOAS envelope; cache tags are never used
 to select desired state.
 
+`infralink-controller-metrics publish-success|publish-failure` is the
+controller-runtime primitive for atomically publishing the existing
+node-exporter convergence textfile. It accepts explicit revision/time inputs,
+returns a YAML/HATEOAS envelope, and does not inspect a registry or select a
+desired state.
+
 Operational support images consumed by registry declarations. The first image adds a
 Gitleaks receive gate to Gitea. It uses Git's template directory for newly created
 repositories and a registry-declared synchronizer for existing repositories.

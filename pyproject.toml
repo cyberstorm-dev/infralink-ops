@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "infralink-ops"
-version = "0.2.3"
+version = "0.2.4"
 description = "Operational runtime for direct Infralink registry projections"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,6 +19,7 @@ dev = ["build>=1.2", "pytest>=8.0", "ruff>=0.6"]
 [project.scripts]
 infralink-ops = "infralink_ops.cli:run"
 infralink-controller-images = "infralink_ops.controller_images:main"
+infralink-controller-metrics = "infralink_ops.controller_metrics:main"
 
 [tool.hatch.metadata]
 allow-direct-references = true
