@@ -90,6 +90,24 @@ def test_rejects_noncanonical_targets_before_target_mutation(tmp_path: Path) -> 
     assert not services_root.exists()
 
 
+def test_rejects_special_permission_bits_before_target_mutation(tmp_path: Path) -> None:
+    root, revision = registry_checkout(tmp_path)
+    services_root = tmp_path / "services"
+    declaration = {**DECLARATION, "file_mode": "4755"}
+
+    with pytest.raises(
+        ValueError, match="file_mode must be a four-digit octal string without special bits"
+    ):
+        materialize_config_tree(
+            root,
+            expected_revision=revision,
+            declaration=declaration,
+            services_root=services_root,
+        )
+
+    assert not (services_root / "config" / "irc" / "static").exists()
+
+
 def test_rejects_a_dirty_registry_checkout_before_target_mutation(tmp_path: Path) -> None:
     root, revision = registry_checkout(tmp_path)
     services_root = tmp_path / "services"

@@ -143,8 +143,8 @@ def _metadata(declaration: Mapping[str, Any]) -> tuple[int, int, int, int]:
 
 def _octal_mode(value: Any, name: str) -> int:
     valid_digits = isinstance(value, str) and all(char in "01234567" for char in value)
-    if not valid_digits or len(value) != 4:
-        raise ValueError(f"{name} must be a four-digit octal string")
+    if not valid_digits or len(value) != 4 or value[0] != "0":
+        raise ValueError(f"{name} must be a four-digit octal string without special bits")
     return int(value, 8)
 
 
