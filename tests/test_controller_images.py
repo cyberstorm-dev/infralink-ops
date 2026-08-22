@@ -3,7 +3,9 @@ from __future__ import annotations
 import subprocess
 import sys
 from importlib.metadata import entry_points
+from pathlib import Path
 
+import tomllib
 import yaml
 
 from infralink_ops.controller_images import retain_and_prune
@@ -65,3 +67,8 @@ def test_installs_controller_image_cache_runnable() -> None:
     scripts = entry_points(group="console_scripts")
     command = next(entry for entry in scripts if entry.name == "infralink-controller-images")
     assert command.value == "infralink_ops.controller_images:main"
+
+
+def test_bumps_minor_runtime_release_version() -> None:
+    project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
+    assert project["project"]["version"] == "0.2.3"
