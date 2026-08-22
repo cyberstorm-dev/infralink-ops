@@ -125,8 +125,11 @@ def _direct_file_binds(compose: Path, config_root: Path) -> list[tuple[str, Path
                 source_path.relative_to(config_root)
             except ValueError:
                 continue
-            if source_path.is_file():
-                binds.append((service, source_path, target))
+            if source_path.is_dir():
+                continue
+            if not source_path.is_file():
+                raise ConfigConsumerError("direct_file_bind_source_unavailable")
+            binds.append((service, source_path, target))
     return binds
 
 

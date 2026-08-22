@@ -144,6 +144,60 @@ def test_activate_recreates_changed_direct_file_bind(tmp_path: Path, monkeypatch
     ]
 
 
+def test_activate_rejects_missing_managed_direct_file_bind(tmp_path: Path, monkeypatch) -> None:
+    from infralink_ops.controller_config_consumers import main
+
+    deployment = tmp_path / "deployment.yml"
+    deployment.write_text("rendered_config_consumers: []\n", encoding="utf-8")
+    config_root = tmp_path / "config"
+    config_root.mkdir()
+    missing_path = config_root / "nginx" / "nginx.conf"
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(
+        yaml.safe_dump(
+            {
+                "services": {
+                    "nginx": {
+                        "volumes": [
+                            f"{missing_path}:/etc/nginx/nginx.conf:ro",
+                        ]
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    log = tmp_path / "docker.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        '#!/usr/bin/env bash\nprintf \'%s\\n\' "$*" >> "$DOCKER_LOG"\n',
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake_bin}:{os.environ['PATH']}")
+    monkeypatch.setenv("DOCKER_LOG", str(log))
+
+    payload, status = main(
+        [
+            "activate",
+            "--deployment",
+            str(deployment),
+            "--compose",
+            str(compose),
+            "--config-root",
+            str(config_root),
+            "--changed-paths-json",
+            "[]",
+        ]
+    )
+
+    assert status == 78
+    assert payload["error"] == {"code": "config_consumers_failed"}
+    assert not log.exists()
+
+
 def test_activate_recreates_stale_direct_file_bind(tmp_path: Path, monkeypatch) -> None:
     from infralink_ops.controller_config_consumers import main
 
