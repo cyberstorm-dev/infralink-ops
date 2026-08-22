@@ -43,3 +43,13 @@ files only below the declared target.
 The package does not fetch Git, select a revision, store a plan, or invoke a
 service consumer. A controller supplies those decisions and may pass the returned
 changed paths to its existing consumer executor.
+
+`infralink-controller-config-consumers validate|activate` is the matching
+public controller runnable for Compose services that consume those rendered
+paths. The caller supplies an already-rendered deployment declaration, Compose
+file, controller-owned config root, and changed relative paths. `validate` runs
+only the validators for affected declared consumers. `activate` recreates only
+affected consumers or services with changed or stale direct config-file binds.
+It returns the selected consumer and service identifiers in a bounded YAML
+envelope. It does not fetch Git, choose registry state, resolve secrets, or
+infer environment-specific paths.
