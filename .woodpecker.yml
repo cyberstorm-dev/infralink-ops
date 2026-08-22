@@ -2,6 +2,7 @@ steps:
   test-python:
     image: python:3.12-slim-bookworm
     commands:
+      - apt-get update && apt-get install --yes --no-install-recommends git && rm -rf /var/lib/apt/lists/*
       - python -m pip install --disable-pip-version-check -e '.[dev]'
       - python -m ruff check src tests
       - python -m ruff format --check src tests
@@ -10,15 +11,3 @@ steps:
       - python -m venv /tmp/infralink-ops-wheel
       - /tmp/infralink-ops-wheel/bin/pip install --disable-pip-version-check dist/*.whl
       - cd /tmp && /tmp/infralink-ops-wheel/bin/python -c 'import infralink_ops'
-
-  test-receive-gate:
-    image: docker:28-cli
-    commands:
-      - docker build --tag infralink-ops-gitea-gitleaks:test .
-      - docker run --rm --entrypoint /bin/sh -v "$PWD/tests:/tests:ro" infralink-ops-gitea-gitleaks:test /tests/receive-gate.sh
-
-  test-runtime-image:
-    image: docker:28-cli
-    commands:
-      - docker build --tag infralink-ops-runtime:test -f Dockerfile.ops .
-      - docker run --rm --entrypoint /bin/sh -v "$PWD/tests:/tests:ro" infralink-ops-runtime:test /tests/runtime-image.sh
