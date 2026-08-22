@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import stat
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -18,6 +18,37 @@ class ConfigTreeResult:
     """The file paths changed beneath the controller-owned config root."""
 
     changed_paths: tuple[str, ...]
+
+
+def preflight_config_trees(
+    registry_root: Path,
+    *,
+    expected_revision: str,
+    declarations: Sequence[Mapping[str, Any]],
+    services_root: Path = Path("/opt/services"),
+) -> None:
+    """Validate a complete declared tree collection before any tree is written.
+
+    Targets are exclusive.  Allowing one declared tree beneath another would
+    make stale-file cleanup from either tree destructive to the other.
+    """
+
+    root = _verified_registry_root(registry_root, expected_revision)
+    declared_targets: list[PurePosixPath] = []
+    for declaration in declarations:
+        if not isinstance(declaration, Mapping):
+            raise ValueError("declared config tree must be a mapping")
+        source = _declared_source_directory(root, declaration.get("source"))
+        target, relative_target = _declared_target_directory(
+            services_root, declaration.get("target")
+        )
+        _metadata(declaration)
+        source_files, source_directories = _preflight_source_tree(source)
+        _preflight_target_tree(target, source_files, source_directories)
+        for existing_target in declared_targets:
+            if _targets_overlap(existing_target, relative_target):
+                raise ValueError("declared config tree targets must not overlap")
+        declared_targets.append(relative_target)
 
 
 def materialize_config_tree(
@@ -47,6 +78,13 @@ def materialize_config_tree(
         source_files=source_files,
         source_directories=source_directories,
         metadata=metadata,
+    )
+
+
+def _targets_overlap(left: PurePosixPath, right: PurePosixPath) -> bool:
+    return (
+        left.parts == right.parts[: len(left.parts)]
+        or right.parts == left.parts[: len(right.parts)]
     )
 
 
