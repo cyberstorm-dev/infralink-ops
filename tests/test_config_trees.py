@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from infralink_ops.config_trees import materialize_config_tree
+from infralink_ops.config_trees import materialize_config_tree, preflight_config_trees
 
 DECLARATION = {
     "source": "catalog/irc/static",
@@ -201,9 +201,56 @@ def test_rejects_target_type_conflicts_before_any_write(tmp_path: Path) -> None:
     assert not (target / "b").exists()
 
 
+def test_preflight_rejects_overlapping_declared_targets_before_any_write(tmp_path: Path) -> None:
+    root, revision = registry_checkout(
+        tmp_path,
+        {
+            "catalog/irc/static/modules.conf": "module = core\n",
+            "catalog/irc/tls/server.crt": "certificate\n",
+        },
+    )
+    services_root = tmp_path / "services"
+    declarations = (
+        DECLARATION,
+        {
+            **DECLARATION,
+            "source": "catalog/irc/tls",
+            "target": "/opt/services/config/irc/static/tls",
+        },
+    )
+
+    with pytest.raises(ValueError, match="declared config tree targets must not overlap"):
+        preflight_config_trees(
+            root,
+            expected_revision=revision,
+            declarations=declarations,
+            services_root=services_root,
+        )
+
+    assert not services_root.exists()
+
+
+def test_preflight_rejects_a_later_invalid_declaration_before_any_write(tmp_path: Path) -> None:
+    root, revision = registry_checkout(tmp_path)
+    services_root = tmp_path / "services"
+    declarations = (DECLARATION, {**DECLARATION, "source": "../outside"})
+
+    with pytest.raises(ValueError, match="source must be a directory below registry root"):
+        preflight_config_trees(
+            root,
+            expected_revision=revision,
+            declarations=declarations,
+            services_root=services_root,
+        )
+
+    assert not services_root.exists()
+
+
 def test_public_config_tree_api_is_importable() -> None:
     from infralink_ops import ConfigTreeResult
     from infralink_ops import materialize_config_tree as public_materialize
+    from infralink_ops import preflight_config_trees as public_preflight
 
     assert ConfigTreeResult.__name__ == "ConfigTreeResult"
     assert callable(public_materialize)
+    assert callable(public_preflight)
