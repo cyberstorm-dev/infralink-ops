@@ -11,6 +11,8 @@ DECLARATION = {
     "target": "/opt/services/config/irc/static",
     "file_mode": "0640",
     "directory_mode": "0750",
+    "owner_uid": 0,
+    "owner_gid": 0,
 }
 
 
@@ -98,6 +100,22 @@ def test_rejects_special_permission_bits_before_target_mutation(tmp_path: Path) 
     with pytest.raises(
         ValueError, match="file_mode must be a four-digit octal string without special bits"
     ):
+        materialize_config_tree(
+            root,
+            expected_revision=revision,
+            declaration=declaration,
+            services_root=services_root,
+        )
+
+    assert not (services_root / "config" / "irc" / "static").exists()
+
+
+def test_requires_declared_ownership_before_target_mutation(tmp_path: Path) -> None:
+    root, revision = registry_checkout(tmp_path)
+    services_root = tmp_path / "services"
+    declaration = {key: value for key, value in DECLARATION.items() if key != "owner_gid"}
+
+    with pytest.raises(ValueError, match="owner_gid must be a non-negative integer"):
         materialize_config_tree(
             root,
             expected_revision=revision,
