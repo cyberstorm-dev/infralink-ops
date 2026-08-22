@@ -21,6 +21,11 @@ Infralink request contract, then returns only a validated, revision-matched
 adapter result. Environment-specific rendering and provider behavior remains
 outside this package.
 
+`infralink_ops.registry_checkout.fetch_configured_registry` is the sole
+checkout primitive for controller runtimes. It only fetches a declared ref into
+an existing clean checkout after validating its exact origin and explicit SSH
+identity/trust files; it never clones, rewrites a remote, or discovers trust.
+
 ## Registry projections
 
 `infralink_ops.materialize_config_tree` projects one registry-declared static
