@@ -26,6 +26,11 @@ checkout primitive for controller runtimes. It only fetches a declared ref into
 an existing clean checkout after validating its exact origin and explicit SSH
 identity/trust files; it never clones, rewrites a remote, or discovers trust.
 
+`infralink-controller-registry-checkout fetch` is the matching controller
+runnable. It receives the exact registry checkout, remote, ref, identity file,
+and trust file, then returns only the detached resolved revision in a bounded
+YAML envelope. It does not render or apply desired state.
+
 ## Registry projections
 
 `infralink_ops.materialize_config_tree` projects one registry-declared static
