@@ -22,6 +22,7 @@ infralink-controller-images = "infralink_ops.controller_images:main"
 infralink-controller-metrics = "infralink_ops.controller_metrics:main"
 infralink-controller-registry-checkout = "infralink_ops.controller_registry_checkout:main"
 infralink-controller-config-consumers = "infralink_ops.controller_config_consumers:cli"
+infralink-controller-adapter = "infralink_ops.controller_adapter_runnable:cli"
 
 [tool.hatch.metadata]
 allow-direct-references = true
