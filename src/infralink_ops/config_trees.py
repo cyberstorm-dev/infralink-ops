@@ -136,8 +136,8 @@ def _declared_target_directory(services_root: Path, value: Any) -> tuple[Path, P
 def _metadata(declaration: Mapping[str, Any]) -> tuple[int, int, int, int]:
     file_mode = _octal_mode(declaration.get("file_mode", "0644"), "file_mode")
     directory_mode = _octal_mode(declaration.get("directory_mode", "0755"), "directory_mode")
-    uid = _nonnegative_integer(declaration.get("uid", os.geteuid()), "uid")
-    gid = _nonnegative_integer(declaration.get("gid", os.getegid()), "gid")
+    uid = _nonnegative_integer(declaration.get("owner_uid"), "owner_uid")
+    gid = _nonnegative_integer(declaration.get("owner_gid"), "owner_gid")
     return file_mode, directory_mode, uid, gid
 
 
