@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "infralink-ops"
-version = "0.2.4"
+version = "0.2.5"
 description = "Operational runtime for direct Infralink registry projections"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "infralink @ https://github.com/cyberstorm-dev/infralink/releases/download/v0.6.6/infralink-0.6.6-py3-none-any.whl#sha256=158a6e5e1f68ea158a6f366835852249e48cf76a4a734e49c4fa18975cce1b9c",
+  "infralink @ https://github.com/cyberstorm-dev/infralink/releases/download/v0.6.9/infralink-0.6.9-py3-none-any.whl#sha256=58cce6c950d8a928637edd3fc1722cdde71e9fae9b01544d88a0695aa2cf06af",
   "PyYAML>=6.0",
 ]
 

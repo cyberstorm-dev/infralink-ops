@@ -15,6 +15,12 @@ Operational support images consumed by registry declarations. The first image ad
 Gitleaks receive gate to Gitea. It uses Git's template directory for newly created
 repositories and a registry-declared synchronizer for existing repositories.
 
+`infralink_ops.controller_adapter.invoke_controller_adapter` is the typed
+runtime boundary for environment adapters. It accepts a fixed argv and a public
+Infralink request contract, then returns only a validated, revision-matched
+adapter result. Environment-specific rendering and provider behavior remains
+outside this package.
+
 ## Registry projections
 
 `infralink_ops.materialize_config_tree` projects one registry-declared static
