@@ -62,6 +62,8 @@ def _verified_registry_root(registry_root: Path, expected_revision: str) -> Path
             "registry revision mismatch: "
             f"expected {expected_revision}, checkout has {actual_revision}"
         )
+    if _git_status(root):
+        raise ValueError(f"registry checkout must be clean: {registry_root}")
     return root
 
 
@@ -87,6 +89,18 @@ def _git_revision(root: Path) -> str:
     if completed.returncode != 0:
         raise ValueError(f"registry checkout has no readable Git HEAD: {root}")
     return completed.stdout.strip()
+
+
+def _git_status(root: Path) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise ValueError(f"registry checkout has no readable Git status: {root}")
+    return completed.stdout
 
 
 def _declared_source_directory(root: Path, value: Any) -> Path:
