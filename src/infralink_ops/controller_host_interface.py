@@ -56,6 +56,9 @@ ASSETS = (
         0o644,
     ),
 )
+SYSTEMD_UNIT_ASSET_NAMES = frozenset(
+    {"infralink-host-reconcile.service", "infralink-host-reconcile.timer"}
+)
 
 
 def _payload(
@@ -106,6 +109,15 @@ def _target_matches(destination: Path, *, contents: bytes, mode: int) -> bool:
     return destination.read_bytes() == contents and stat.S_IMODE(metadata.st_mode) == mode
 
 
+def _snapshot(destination: Path) -> tuple[bytes, int] | None:
+    if not destination.exists() and not destination.is_symlink():
+        return None
+    metadata = destination.lstat()
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+        raise HostInterfaceError("host_interface_path_unsafe")
+    return destination.read_bytes(), stat.S_IMODE(metadata.st_mode)
+
+
 def _write_atomically(destination: Path, *, contents: bytes, mode: int) -> None:
     descriptor, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
     try:
@@ -123,10 +135,22 @@ def _write_atomically(destination: Path, *, contents: bytes, mode: int) -> None:
         raise HostInterfaceError("host_interface_refresh_failed") from error
 
 
+def _restore_unit(destination: Path, snapshot: tuple[bytes, int] | None) -> None:
+    try:
+        if snapshot is None:
+            destination.unlink(missing_ok=True)
+            return
+        contents, mode = snapshot
+        _write_atomically(destination, contents=contents, mode=mode)
+    except OSError as error:
+        raise HostInterfaceError("host_interface_refresh_failed") from error
+
+
 def refresh(host_root: Path) -> dict[str, object]:
     """Atomically materialize the exact packaged launcher and systemd units."""
 
     sources: list[tuple[HostInterfaceAsset, Path, bytes]] = []
+    unit_snapshots: dict[Path, tuple[bytes, int] | None] = {}
     for asset in ASSETS:
         destination = _destination(host_root, asset)
         _ensure_safe_parent(destination, host_root=host_root, create=False)
@@ -136,6 +160,8 @@ def refresh(host_root: Path) -> dict[str, object]:
             raise HostInterfaceError("host_interface_refresh_failed") from error
         _target_matches(destination, contents=contents, mode=asset.mode)
         sources.append((asset, destination, contents))
+        if asset.source_name in SYSTEMD_UNIT_ASSET_NAMES:
+            unit_snapshots[destination] = _snapshot(destination)
 
     changed_assets: set[str] = set()
     for asset, destination, contents in sources:
@@ -144,18 +170,35 @@ def refresh(host_root: Path) -> dict[str, object]:
             _write_atomically(destination, contents=contents, mode=asset.mode)
             changed_assets.add(asset.source_name)
 
-    # Reload host PID 1 on every successful refresh so a prior failed reload
-    # cannot leave verified unit files stale without a second state marker.
-    try:
-        subprocess.run(
-            ["nsenter", "--target", "1", "--mount", "--pid", "--", "systemctl", "daemon-reload"],
-            check=True,
-        )
-    except (OSError, subprocess.CalledProcessError) as error:
-        raise HostInterfaceError("host_interface_systemd_reload_failed") from error
+    systemd_reloaded = False
+    changed_unit_destinations = [
+        destination
+        for asset, destination, _contents in sources
+        if asset.source_name in SYSTEMD_UNIT_ASSET_NAMES and asset.source_name in changed_assets
+    ]
+    if changed_unit_destinations:
+        try:
+            subprocess.run(
+                [
+                    "nsenter",
+                    "--target",
+                    "1",
+                    "--mount",
+                    "--pid",
+                    "--",
+                    "systemctl",
+                    "daemon-reload",
+                ],
+                check=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as error:
+            for destination in changed_unit_destinations:
+                _restore_unit(destination, unit_snapshots[destination])
+            raise HostInterfaceError("host_interface_systemd_reload_failed") from error
+        systemd_reloaded = True
     return {
         "changed": bool(changed_assets),
-        "systemd_reloaded": True,
+        "systemd_reloaded": systemd_reloaded,
         "assets": [asset.document() for asset in ASSETS],
     }
 
