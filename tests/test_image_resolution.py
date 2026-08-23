@@ -90,9 +90,51 @@ def test_resolve_host_images_rejects_dirty_registry_before_docker_use(tmp_path: 
         resolve_host_images(tmp_path / "registry", UUID, expected_revision=revision)
 
 
+def test_resolve_controller_reference_uses_declared_sha_then_head_branch(tmp_path: Path) -> None:
+    from infralink_ops.image_resolution import resolve_controller_reference
+
+    deployment = tmp_path / "registry" / "hosts" / UUID / "operations" / "deployment.yml"
+    deployment.parent.mkdir(parents=True)
+    deployment.write_text(
+        """controller:
+  image:
+    repository: ghcr.io/example/controller
+    sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    tag: ignored
+""",
+        encoding="utf-8",
+    )
+    revision = commit_registry(tmp_path / "registry")
+
+    assert resolve_controller_reference(
+        tmp_path / "registry", UUID, expected_revision=revision
+    ) == ("ghcr.io/example/controller@sha256:" + "a" * 64)
+
+    deployment.write_text(
+        """controller:
+  image:
+    repository: ghcr.io/example/controller
+    tag: head
+    branch: release
+""",
+        encoding="utf-8",
+    )
+    revision = commit_registry(tmp_path / "registry")
+    assert (
+        resolve_controller_reference(tmp_path / "registry", UUID, expected_revision=revision)
+        == "ghcr.io/example/controller:release"
+    )
+
+
 def test_installs_controller_image_resolution_runnable() -> None:
     scripts = entry_points(group="console_scripts")
     command = next(
         entry for entry in scripts if entry.name == "infralink-controller-image-resolution"
     )
     assert command.value == "infralink_ops.image_resolution:main"
+
+
+def test_installs_controller_reference_runnable() -> None:
+    scripts = entry_points(group="console_scripts")
+    command = next(entry for entry in scripts if entry.name == "infralink-controller-reference")
+    assert command.value == "infralink_ops.image_resolution:controller_reference_main"

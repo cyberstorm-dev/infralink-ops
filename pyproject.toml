@@ -25,6 +25,7 @@ infralink-controller-config-consumers = "infralink_ops.controller_config_consume
 infralink-controller-adapter = "infralink_ops.controller_adapter_runnable:cli"
 infralink-controller-runtime-directories = "infralink_ops.controller_runtime_directories:cli"
 infralink-controller-image-resolution = "infralink_ops.image_resolution:main"
+infralink-controller-reference = "infralink_ops.image_resolution:controller_reference_main"
 
 [tool.hatch.metadata]
 allow-direct-references = true

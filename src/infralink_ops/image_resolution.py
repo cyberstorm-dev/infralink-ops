@@ -130,6 +130,43 @@ def resolved_reference(reference: str, repository: str, *, docker: str = "docker
     return f"{repository}@sha256:{matches[0].rsplit(':', 1)[1]}"
 
 
+def resolve_controller_reference(
+    registry_root: Path, host_id: str, *, expected_revision: str
+) -> str:
+    """Return the declared controller selector from an exact registry revision."""
+
+    try:
+        root = verify_registry_revision(registry_root, expected_revision=expected_revision).root
+    except RegistryCheckoutError as error:
+        _fail(str(error))
+    deployment_path = root / "hosts" / host_id / "operations" / "deployment.yml"
+    try:
+        document = yaml.safe_load(deployment_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as error:
+        _fail(f"deployment declaration is unavailable: {error}")
+    if not isinstance(document, dict):
+        _fail("deployment declaration is invalid")
+    controller = document.get("controller")
+    if not isinstance(controller, dict):
+        _fail("controller declaration is invalid")
+    image = controller.get("image")
+    if not isinstance(image, dict):
+        _fail("controller image selector is invalid")
+    repository = image.get("repository")
+    if not isinstance(repository, str) or not repository:
+        _fail("controller image repository is missing")
+    if "sha" in image:
+        sha = image["sha"]
+        if not isinstance(sha, str) or _SHA.fullmatch(sha) is None:
+            _fail("controller image SHA is invalid")
+        return f"{repository}@sha256:{sha}"
+    tag = image.get("tag", "head")
+    branch = image.get("branch", "main")
+    if not isinstance(tag, str) or not isinstance(branch, str) or not branch:
+        _fail("controller image tag or branch is invalid")
+    return f"{repository}:{branch if tag.lower() == 'head' else tag}"
+
+
 def resolve_host_image_evidence(
     registry_root: Path, host_id: str, *, expected_revision: str, docker: str = "docker"
 ) -> dict[str, dict[str, str]]:
@@ -188,6 +225,26 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     except ImageResolutionError as error:
         print(f"controller images: {error}", file=sys.stderr)
+        return 78
+    return 0
+
+
+def controller_reference_main(argv: list[str] | None = None) -> int:
+    """Print the controller image selector for a revision-verified host declaration."""
+
+    parser = argparse.ArgumentParser(prog="infralink-controller-reference")
+    parser.add_argument("--registry", required=True, type=Path)
+    parser.add_argument("--uuid", required=True)
+    parser.add_argument("--expected-revision", required=True)
+    args = parser.parse_args(argv)
+    try:
+        print(
+            resolve_controller_reference(
+                args.registry, args.uuid, expected_revision=args.expected_revision
+            )
+        )
+    except ImageResolutionError as error:
+        print(f"controller reference: {error}", file=sys.stderr)
         return 78
     return 0
 
