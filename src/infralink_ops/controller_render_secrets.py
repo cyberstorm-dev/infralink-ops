@@ -13,6 +13,8 @@ from typing import Any
 
 import yaml
 
+from infralink_ops.registry_checkout import RegistryCheckoutError, verify_registry_revision
+
 
 class RenderSecretsError(ValueError):
     """A declared render-secret binding cannot be resolved safely."""
@@ -88,10 +90,14 @@ def _project_values(project_id: str, alias: str) -> dict[str, str]:
     }
 
 
-def resolve(*, registry: Path, host_id: str) -> list[str]:
+def resolve(*, registry: Path, registry_revision: str, host_id: str) -> list[str]:
     """Return shell-safe exports for the host's declared render-secret bindings."""
 
-    document = _secrets(registry, _deployment(registry, host_id))
+    try:
+        checkout = verify_registry_revision(registry, expected_revision=registry_revision)
+    except RegistryCheckoutError as error:
+        raise RenderSecretsError("registry_checkout_failed") from error
+    document = _secrets(checkout.root, _deployment(checkout.root, host_id))
     if document is None:
         return []
     raw_projects = document.get("projects")
@@ -148,10 +154,15 @@ def cli(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(prog="infralink-controller-render-secrets")
     parser.add_argument("--registry", required=True, type=Path)
+    parser.add_argument("--registry-revision", required=True)
     parser.add_argument("--uuid", required=True)
     arguments = parser.parse_args(argv)
     try:
-        for export in resolve(registry=arguments.registry, host_id=arguments.uuid):
+        for export in resolve(
+            registry=arguments.registry,
+            registry_revision=arguments.registry_revision,
+            host_id=arguments.uuid,
+        ):
             print(export)
     except RenderSecretsError as error:
         print(f"controller render secrets: {error}", file=sys.stderr)
