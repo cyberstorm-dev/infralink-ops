@@ -196,6 +196,52 @@ def test_rejects_intermediate_symlink_source_before_target_mutation(tmp_path: Pa
     assert not (services_root / "config" / "irc" / "static").exists()
 
 
+def test_ignores_dirty_child_submodules_when_parent_checkout_is_clean(tmp_path: Path) -> None:
+    root, _ = registry_checkout(tmp_path)
+    child = tmp_path / "child"
+    child.mkdir()
+    subprocess.run(["git", "init", "-q", str(child)], check=True)
+    subprocess.run(
+        ["git", "-C", str(child), "config", "user.email", "test@example.invalid"], check=True
+    )
+    subprocess.run(["git", "-C", str(child), "config", "user.name", "Test"], check=True)
+    (child / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(child), "add", "tracked.txt"], check=True)
+    subprocess.run(["git", "-C", str(child), "commit", "-qm", "child"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            str(child),
+            "shared/child",
+        ],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(root), "commit", "-am", "add child"], check=True)
+    revision = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (root / "shared" / "child" / "tracked.txt").write_text("dirty child\n", encoding="utf-8")
+
+    result = materialize_config_tree(
+        root,
+        expected_revision=revision,
+        declaration=DECLARATION,
+        services_root=tmp_path / "services",
+    )
+
+    assert result.changed_paths == ("irc/static/modules.conf",)
+
+
 def test_sync_updates_nested_files_removes_stale_entries_and_is_idempotent(tmp_path: Path) -> None:
     root, revision = registry_checkout(
         tmp_path,
