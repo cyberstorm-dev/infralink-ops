@@ -3,7 +3,7 @@ from pathlib import Path
 
 import yaml
 
-from infralink_ops.controller_protected_transitions import validate
+from infralink_ops.controller_protected_transitions import main, validate
 
 HOST_ID = "11111111-1111-4111-8111-111111111111"
 
@@ -67,3 +67,12 @@ def test_rejects_an_unapproved_protected_image_change(tmp_path: Path) -> None:
 
     assert status == 78
     assert result["error"] == "protected_transition_unauthorized"
+
+
+def test_invalid_cli_usage_returns_a_yaml_envelope() -> None:
+    payload, status = main([])
+
+    assert status == 64
+    assert payload["schema_version"] == "infralink.ops.protected-transitions/v1"
+    assert payload["ok"] is False
+    assert payload["error"] == {"code": "usage_error"}

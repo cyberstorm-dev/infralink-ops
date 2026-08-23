@@ -24,6 +24,13 @@ class ProtectedTransitionError(ValueError):
     """A protected image transition is invalid or unauthorized."""
 
 
+class EnvelopeParser(argparse.ArgumentParser):
+    """Keep invalid invocation inside the public response envelope."""
+
+    def error(self, message: str) -> None:
+        raise ProtectedTransitionError("usage_error")
+
+
 def canonical_repository(value: str) -> str:
     """Return the fully qualified OCI repository for a configured reference."""
 
@@ -176,13 +183,26 @@ def validate(
 def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
     """Execute the protected-transition validator through its YAML envelope."""
 
-    parser = argparse.ArgumentParser(prog="infralink-controller-protected-transitions")
+    parser = EnvelopeParser(prog="infralink-controller-protected-transitions")
     parser.add_argument("--registry", required=True, type=Path)
     parser.add_argument("--registry-revision", required=True)
     parser.add_argument("--host-id", required=True)
     parser.add_argument("--compose", required=True, type=Path)
     parser.add_argument("--docker", default="docker")
-    arguments = parser.parse_args(argv)
+    try:
+        arguments = parser.parse_args(argv)
+    except ProtectedTransitionError as error:
+        return (
+            {
+                "schema_version": SCHEMA_VERSION,
+                "ok": False,
+                "command": {"path": [], "args": {}},
+                "error": {"code": str(error)},
+                "next_actions": [],
+                "meta": {"truncated": False},
+            },
+            64,
+        )
     result, status = validate(
         registry=arguments.registry,
         registry_revision=arguments.registry_revision,
