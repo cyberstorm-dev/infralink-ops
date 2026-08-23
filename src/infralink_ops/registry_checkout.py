@@ -21,6 +21,28 @@ class RegistryCheckout:
     revision: str
 
 
+def verify_registry_revision(registry_root: Path, *, expected_revision: str) -> RegistryCheckout:
+    """Verify an existing checkout without fetching or selecting a revision."""
+
+    root = registry_root.resolve()
+    _require_existing_checkout(root)
+    revision = _git(root, "rev-parse", "HEAD")
+    if revision != expected_revision:
+        raise RegistryCheckoutError(
+            f"registry revision mismatch: expected {expected_revision}, checkout has {revision}"
+        )
+    status = _git(
+        root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--ignore-submodules=all",
+    )
+    if status:
+        raise RegistryCheckoutError("registry checkout must be clean")
+    return RegistryCheckout(root=root, revision=revision)
+
+
 def fetch_configured_registry(
     registry_root: Path,
     *,
@@ -69,19 +91,13 @@ def fetch_configured_registry(
     _git(root, "reset", "--hard", "FETCH_HEAD")
     _git(root, "clean", "-ffd")
     _git(root, "checkout", "--detach", "FETCH_HEAD")
-    status = _git(
-        root,
-        "status",
-        "--porcelain=v1",
-        "--untracked-files=all",
-        "--ignore-submodules=all",
-    )
-    if status:
-        raise RegistryCheckoutError("registry checkout could not be converged")
     revision = _git(root, "rev-parse", "HEAD")
     if len(revision) != 40 or any(character not in "0123456789abcdef" for character in revision):
         raise RegistryCheckoutError("registry checkout did not resolve to a full SHA-1 revision")
-    return RegistryCheckout(root=root, revision=revision)
+    try:
+        return verify_registry_revision(root, expected_revision=revision)
+    except RegistryCheckoutError as error:
+        raise RegistryCheckoutError("registry checkout could not be converged") from error
 
 
 def _require_existing_checkout(root: Path) -> None:
