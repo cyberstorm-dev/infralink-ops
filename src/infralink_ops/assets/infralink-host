@@ -68,6 +68,7 @@ run_reconcile() {
         --network=host \
         "${controller_env[@]}" \
         "${normal_mounts[@]}" \
+        --mount type=bind,src=/usr/local/bin/infralink,dst=/usr/local/bin/infralink \
         "$image" "$mode" "$@"
 }
 
