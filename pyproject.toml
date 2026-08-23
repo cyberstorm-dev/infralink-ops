@@ -24,6 +24,7 @@ infralink-controller-registry-checkout = "infralink_ops.controller_registry_chec
 infralink-controller-config-consumers = "infralink_ops.controller_config_consumers:cli"
 infralink-controller-adapter = "infralink_ops.controller_adapter_runnable:cli"
 infralink-controller-runtime-directories = "infralink_ops.controller_runtime_directories:cli"
+infralink-controller-doctor = "infralink_ops.controller_doctor:cli"
 infralink-controller-render-secrets = "infralink_ops.controller_render_secrets:cli"
 infralink-controller-firewall = "infralink_ops.controller_firewall:cli"
 infralink-controller-image-resolution = "infralink_ops.image_resolution:main"
