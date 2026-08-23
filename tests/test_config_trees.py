@@ -142,6 +142,60 @@ def test_rejects_a_dirty_registry_checkout_before_target_mutation(tmp_path: Path
     assert not (services_root / "config" / "irc" / "static").exists()
 
 
+def test_rejects_ignored_source_content_before_target_mutation(tmp_path: Path) -> None:
+    root, revision = registry_checkout(tmp_path)
+    services_root = tmp_path / "services"
+    (root / ".gitignore").write_text("*.local\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", ".gitignore"], check=True)
+    subprocess.run(["git", "-C", str(root), "commit", "-qm", "ignore local files"], check=True)
+    revision = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (root / "catalog" / "irc" / "static" / "rogue.local").write_text(
+        "not registry content\n", encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="source tree must match tracked registry content"):
+        materialize_config_tree(
+            root,
+            expected_revision=revision,
+            declaration=DECLARATION,
+            services_root=services_root,
+        )
+
+    assert not (services_root / "config" / "irc" / "static").exists()
+
+
+def test_rejects_intermediate_symlink_source_before_target_mutation(tmp_path: Path) -> None:
+    root, revision = registry_checkout(tmp_path)
+    services_root = tmp_path / "services"
+    (root / "catalog" / "link").symlink_to(root / "catalog" / "irc", target_is_directory=True)
+    subprocess.run(["git", "-C", str(root), "add", "catalog/link"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-qm", "intermediate source symlink"],
+        check=True,
+    )
+    revision = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    with pytest.raises(ValueError, match="source must not traverse a symlink"):
+        materialize_config_tree(
+            root,
+            expected_revision=revision,
+            declaration={**DECLARATION, "source": "catalog/link/static"},
+            services_root=services_root,
+        )
+
+    assert not (services_root / "config" / "irc" / "static").exists()
+
+
 def test_sync_updates_nested_files_removes_stale_entries_and_is_idempotent(tmp_path: Path) -> None:
     root, revision = registry_checkout(
         tmp_path,
