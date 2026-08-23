@@ -15,6 +15,7 @@ from infralink_ops.firewall import (
     render_firewall_policy,
     verify_firewall_policy,
 )
+from infralink_ops.registry_checkout import RegistryCheckoutError, verify_registry_revision
 
 SCHEMA_VERSION = "infralink.ops.firewall/v1"
 
@@ -30,6 +31,7 @@ def _payload(
     *,
     command: str | None,
     registry: Path | None,
+    registry_revision: str | None,
     uuid: str | None,
     compose: Path | None,
     result: dict[str, object] | None = None,
@@ -38,6 +40,8 @@ def _payload(
     arguments: dict[str, str] = {}
     if registry is not None:
         arguments["registry"] = str(registry)
+    if registry_revision is not None:
+        arguments["registry_revision"] = registry_revision
     if uuid is not None:
         arguments["uuid"] = uuid
     if compose is not None:
@@ -62,14 +66,23 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
     parser = EnvelopeParser(prog="infralink-controller-firewall")
     parser.add_argument("command", choices=("render", "verify"))
     parser.add_argument("--registry", required=True, type=Path)
+    parser.add_argument("--registry-revision", required=True)
     parser.add_argument("--uuid", required=True)
     parser.add_argument("--compose", required=True, type=Path)
     try:
         args = parser.parse_args(argv)
     except FirewallError as error:
-        return _payload(command=None, registry=None, uuid=None, compose=None, error=str(error)), 64
+        return _payload(
+            command=None,
+            registry=None,
+            registry_revision=None,
+            uuid=None,
+            compose=None,
+            error=str(error),
+        ), 64
     try:
-        deployment = args.registry / "hosts" / args.uuid / "operations" / "deployment.yml"
+        checkout = verify_registry_revision(args.registry, expected_revision=args.registry_revision)
+        deployment = checkout.root / "hosts" / args.uuid / "operations" / "deployment.yml"
         firewall = load_firewall_policy(deployment)
         if firewall is None:
             result: dict[str, object] = {"status": "disabled"}
@@ -85,15 +98,26 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
             }
         return _payload(
             command=args.command,
-            registry=args.registry,
+            registry=checkout.root,
+            registry_revision=checkout.revision,
             uuid=args.uuid,
             compose=args.compose,
             result=result,
         ), 0
+    except RegistryCheckoutError:
+        return _payload(
+            command=args.command,
+            registry=args.registry,
+            registry_revision=args.registry_revision,
+            uuid=args.uuid,
+            compose=args.compose,
+            error="registry_checkout_failed",
+        ), 78
     except (OSError, UnicodeDecodeError, FirewallError):
         return _payload(
             command=args.command,
             registry=args.registry,
+            registry_revision=args.registry_revision,
             uuid=args.uuid,
             compose=args.compose,
             error="firewall_render_failed",

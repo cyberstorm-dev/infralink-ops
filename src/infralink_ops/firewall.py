@@ -205,7 +205,6 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
         f"tcp dport {firewall.management_ssh.port} accept"
         for source in firewall.management_ssh.sources
     ]
-    ssh_rules.append('    iifname "tailscale0" tcp dport 22 accept')
     body = "\n".join(
         [
             "destroy table inet infralink_filter",
@@ -214,11 +213,6 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
             "    type filter hook input priority filter; policy drop;",
             '    iifname "lo" accept',
             "    ct state established,related accept",
-            "    udp dport 41641 accept",
-            '    iifname "docker0" udp dport 53 accept',
-            '    iifname "docker0" tcp dport 53 accept',
-            '    iifname "br-*" udp dport 53 accept',
-            '    iifname "br-*" tcp dport 53 accept',
             *bridge_rules,
             *ssh_rules,
             *ingress_rules,
@@ -226,8 +220,6 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
             "  chain forward {",
             "    type filter hook forward priority filter; policy drop;",
             "    ct state established,related accept",
-            '    iifname "docker0" accept',
-            '    iifname "br-*" accept',
             *forward_rules,
             "  }",
             "}",
@@ -254,6 +246,12 @@ def verify_firewall_policy(
         raise FirewallError("firewall_runtime_unavailable") from error
     if actual.returncode != 0 or not isinstance(actual.stdout, str):
         raise FirewallError("firewall_runtime_unavailable")
+    required_base_chains = (
+        "type filter hook input priority filter; policy drop;",
+        "type filter hook forward priority filter; policy drop;",
+    )
+    if any(chain not in actual.stdout for chain in required_base_chains):
+        raise FirewallError("firewall_runtime_drift")
     expected_rules = [
         line.strip()
         for line in expected.decode("utf-8").splitlines()

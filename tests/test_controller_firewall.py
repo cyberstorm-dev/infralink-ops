@@ -13,17 +13,45 @@ def _deployment(registry: Path, uuid: str, body: str) -> None:
     (path / "deployment.yml").write_text(body, encoding="utf-8")
 
 
+def _commit_registry(registry: Path) -> str:
+    for argv in (
+        ["git", "init", str(registry)],
+        ["git", "-C", str(registry), "config", "user.email", "tests@example.invalid"],
+        ["git", "-C", str(registry), "config", "user.name", "Infralink tests"],
+        ["git", "-C", str(registry), "add", "."],
+        ["git", "-C", str(registry), "commit", "-m", "registry"],
+    ):
+        subprocess.run(argv, check=True, capture_output=True, text=True)
+    return subprocess.run(
+        ["git", "-C", str(registry), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
 def test_render_reports_a_host_without_firewall_as_disabled(tmp_path: Path) -> None:
     from infralink_ops.controller_firewall import main
 
     registry = tmp_path / "registry"
     uuid = "00000000-0000-4000-8000-000000000001"
     _deployment(registry, uuid, "services: []\n")
+    revision = _commit_registry(registry)
     compose = tmp_path / "docker-compose.yml"
     compose.write_text("services: {}\n", encoding="utf-8")
 
     payload, status = main(
-        ["render", "--registry", str(registry), "--uuid", uuid, "--compose", str(compose)]
+        [
+            "render",
+            "--registry",
+            str(registry),
+            "--registry-revision",
+            revision,
+            "--uuid",
+            uuid,
+            "--compose",
+            str(compose),
+        ]
     )
 
     assert status == 0
@@ -32,12 +60,45 @@ def test_render_reports_a_host_without_firewall_as_disabled(tmp_path: Path) -> N
         "ok": True,
         "command": {
             "path": ["render"],
-            "args": {"registry": str(registry), "uuid": uuid, "compose": str(compose)},
+            "args": {
+                "registry": str(registry),
+                "registry_revision": revision,
+                "uuid": uuid,
+                "compose": str(compose),
+            },
         },
         "result": {"status": "disabled"},
         "next_actions": [],
         "meta": {"truncated": False},
     }
+
+
+def test_render_rejects_a_registry_revision_mismatch(tmp_path: Path) -> None:
+    from infralink_ops.controller_firewall import main
+
+    registry = tmp_path / "registry"
+    uuid = "00000000-0000-4000-8000-000000000001"
+    _deployment(registry, uuid, "services: []\n")
+    _commit_registry(registry)
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+
+    payload, status = main(
+        [
+            "render",
+            "--registry",
+            str(registry),
+            "--registry-revision",
+            "0" * 40,
+            "--uuid",
+            uuid,
+            "--compose",
+            str(compose),
+        ]
+    )
+
+    assert status == 78
+    assert payload["error"] == {"code": "registry_checkout_failed"}
 
 
 def test_verify_invokes_public_runtime_for_a_declared_firewall(tmp_path: Path, monkeypatch) -> None:
@@ -57,6 +118,7 @@ def test_verify_invokes_public_runtime_for_a_declared_firewall(tmp_path: Path, m
     sources: [100.64.0.0/10]
 """,
     )
+    revision = _commit_registry(registry)
     compose = tmp_path / "docker-compose.yml"
     compose.write_text("services: {}\n", encoding="utf-8")
     observed: dict[str, object] = {}
@@ -68,7 +130,17 @@ def test_verify_invokes_public_runtime_for_a_declared_firewall(tmp_path: Path, m
     monkeypatch.setattr(controller_firewall, "verify_firewall_policy", verify)
 
     payload, status = controller_firewall.main(
-        ["verify", "--registry", str(registry), "--uuid", uuid, "--compose", str(compose)]
+        [
+            "verify",
+            "--registry",
+            str(registry),
+            "--registry-revision",
+            revision,
+            "--uuid",
+            uuid,
+            "--compose",
+            str(compose),
+        ]
     )
 
     assert status == 0
