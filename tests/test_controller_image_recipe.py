@@ -12,6 +12,7 @@ def test_controller_image_is_a_public_ops_runtime() -> None:
         "infralink-controller-adapter",
         "infralink-controller-runtime-directories",
         "infralink-controller-host-interface",
+        "infralink-controller-doctor",
         "infralink-controller-firewall",
         "infralink-controller-image-resolution",
         "infralink-controller-reference",
