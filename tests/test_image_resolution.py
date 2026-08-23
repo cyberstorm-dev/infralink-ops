@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from importlib.metadata import entry_points
 from pathlib import Path
 
 import pytest
@@ -87,3 +88,11 @@ def test_resolve_host_images_rejects_dirty_registry_before_docker_use(tmp_path: 
 
     with pytest.raises(ImageResolutionError, match="registry checkout must be clean"):
         resolve_host_images(tmp_path / "registry", UUID, expected_revision=revision)
+
+
+def test_installs_controller_image_resolution_runnable() -> None:
+    scripts = entry_points(group="console_scripts")
+    command = next(
+        entry for entry in scripts if entry.name == "infralink-controller-image-resolution"
+    )
+    assert command.value == "infralink_ops.image_resolution:main"
