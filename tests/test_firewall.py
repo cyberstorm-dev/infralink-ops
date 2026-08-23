@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
+import pytest
 from infralink.firewall import FirewallPolicy
 
 
@@ -77,3 +79,46 @@ def test_load_firewall_policy_accepts_a_host_without_firewall_declaration(tmp_pa
     deployment.write_text("services: []\n", encoding="utf-8")
 
     assert load_firewall_policy(deployment) is None
+
+
+def test_verify_firewall_policy_accepts_matching_runtime_rules() -> None:
+    from infralink_ops.firewall import render_firewall_policy, verify_firewall_policy
+
+    compose = (
+        b"services:\n"
+        b"  api:\n"
+        b"    image: example/api\n"
+        b"    ports:\n"
+        b"      - 100.64.0.10:8443:8443/tcp\n"
+    )
+    runtime = render_firewall_policy(firewall=_policy(), compose=compose).decode("utf-8")
+    runtime = runtime.removeprefix("destroy table inet infralink_filter\n")
+
+    def runner(argv: list[str]) -> subprocess.CompletedProcess[str]:
+        assert argv == ["nft", "list", "table", "inet", "infralink_filter"]
+        return subprocess.CompletedProcess(argv, 0, stdout=runtime, stderr="")
+
+    verify_firewall_policy(firewall=_policy(), compose=compose, runner=runner)
+
+
+def test_verify_firewall_policy_rejects_missing_declared_runtime_rule() -> None:
+    from infralink_ops.firewall import FirewallError, verify_firewall_policy
+
+    compose = (
+        b"services:\n"
+        b"  api:\n"
+        b"    image: example/api\n"
+        b"    ports:\n"
+        b"      - 100.64.0.10:8443:8443/tcp\n"
+    )
+
+    def runner(argv: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout="table inet infralink_filter { chain input { } }\n",
+            stderr="",
+        )
+
+    with pytest.raises(FirewallError, match="firewall_runtime_drift"):
+        verify_firewall_policy(firewall=_policy(), compose=compose, runner=runner)

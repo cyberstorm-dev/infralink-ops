@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import ipaddress
-from collections.abc import Mapping
+import re
+import subprocess
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +25,9 @@ class _PublishedPort:
     host_address: str
     port: int
     target_port: int
+
+
+CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]
 
 
 def load_firewall_policy(deployment: Path) -> FirewallPolicy | None:
@@ -230,3 +235,32 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
         ]
     )
     return body.encode("utf-8")
+
+
+def verify_firewall_policy(
+    *, firewall: FirewallPolicy, compose: bytes, runner: CommandRunner | None = None
+) -> None:
+    """Fail closed unless the owned runtime table contains every declared rule."""
+
+    expected = render_firewall_policy(firewall=firewall, compose=compose)
+    try:
+        argv = ["nft", "list", "table", "inet", "infralink_filter"]
+        actual = (
+            subprocess.run(argv, check=False, text=True, capture_output=True)
+            if runner is None
+            else runner(argv)
+        )
+    except OSError as error:
+        raise FirewallError("firewall_runtime_unavailable") from error
+    if actual.returncode != 0 or not isinstance(actual.stdout, str):
+        raise FirewallError("firewall_runtime_unavailable")
+    expected_rules = [
+        line.strip()
+        for line in expected.decode("utf-8").splitlines()
+        if line.startswith("    ")
+        and line.strip() not in {"}", "{"}
+        and not line.strip().startswith(("type ", "policy ", "chain "))
+    ]
+    actual_policy = re.sub(r"\s+# handle \d+", "", actual.stdout)
+    if any(rule not in actual_policy for rule in expected_rules):
+        raise FirewallError("firewall_runtime_drift")
