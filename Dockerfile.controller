@@ -1,0 +1,53 @@
+FROM python@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
+
+ARG BWS_VERSION=1.0.0
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update -qq \
+    && apt-get install -y -qq --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        gnupg \
+        iptables \
+        jq \
+        lsb-release \
+        nftables \
+        openssh-client \
+        unzip \
+        util-linux \
+        yq \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg \
+        | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && chmod a+r /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" \
+        > /etc/apt/sources.list.d/docker.list \
+    && apt-get update -qq \
+    && apt-get install -y -qq --no-install-recommends docker-ce-cli docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL "https://github.com/bitwarden/sdk/releases/download/bws-v${BWS_VERSION}/bws-x86_64-unknown-linux-gnu-${BWS_VERSION}.zip" \
+        -o /tmp/bws.zip \
+    && unzip -q /tmp/bws.zip -d /tmp \
+    && install -m 0755 /tmp/bws /usr/local/bin/bws \
+    && rm -f /tmp/bws.zip /tmp/bws
+
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN python -m pip install --disable-pip-version-check --no-cache-dir . \
+    && command -v infralink-controller-registry-checkout \
+    && command -v infralink-controller-config-consumers \
+    && command -v infralink-controller-adapter \
+    && command -v infralink-controller-runtime-directories \
+    && command -v infralink-controller-host-interface \
+    && command -v infralink-controller-firewall \
+    && command -v infralink-controller-image-resolution \
+    && command -v infralink-controller-reference
+
+CMD ["infralink-ops", "--help"]
