@@ -56,26 +56,26 @@ def test_fetches_declared_ref_and_returns_exact_detached_revision(tmp_path: Path
     assert detached.returncode == 1
 
 
-def test_discards_dirty_runtime_cache_after_verified_fetch(tmp_path: Path) -> None:
+def test_rejects_dirty_runtime_cache_before_fetch_or_mutation(tmp_path: Path) -> None:
     origin, registry, identity, known_hosts = _checkout(tmp_path)
     (origin / "registry.yml").write_text("second\n", encoding="utf-8")
     _git("add", "registry.yml", cwd=origin)
     _git("commit", "-qm", "advance", cwd=origin)
-    expected = _git("rev-parse", "HEAD", cwd=origin)
+    original_revision = _git("rev-parse", "HEAD", cwd=registry)
     (registry / "local-state.yml").write_text("must-not-be-preserved\n", encoding="utf-8")
 
-    result = fetch_configured_registry(
-        registry,
-        configured_remote=str(origin),
-        configured_ref="main",
-        identity_file=identity,
-        known_hosts_file=known_hosts,
-    )
+    with pytest.raises(RegistryCheckoutError, match="registry checkout is dirty"):
+        fetch_configured_registry(
+            registry,
+            configured_remote=str(origin),
+            configured_ref="main",
+            identity_file=identity,
+            known_hosts_file=known_hosts,
+        )
 
-    assert result.revision == expected
-    assert _git("rev-parse", "HEAD", cwd=registry) == expected
-    assert not (registry / "local-state.yml").exists()
-    assert _git("status", "--porcelain=v1", "--untracked-files=all", cwd=registry) == ""
+    assert _git("rev-parse", "HEAD", cwd=registry) == original_revision
+    assert (registry / "local-state.yml").read_text(encoding="utf-8") == "must-not-be-preserved\n"
+    assert _git("status", "--porcelain=v1", "--untracked-files=all", cwd=registry)
 
 
 def test_discards_retired_initialized_submodule_and_preserves_active_one(tmp_path: Path) -> None:

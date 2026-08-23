@@ -77,7 +77,7 @@ def test_fetch_returns_the_detached_configured_registry_revision(tmp_path: Path)
     assert _git("rev-parse", "HEAD", cwd=registry) == expected_revision
 
 
-def test_fetch_discards_dirty_runtime_cache_without_exposing_git_details(tmp_path: Path) -> None:
+def test_fetch_rejects_dirty_runtime_cache_without_exposing_git_details(tmp_path: Path) -> None:
     origin, registry, identity, known_hosts = _checkout(tmp_path)
     (registry / "local-state.yml").write_text("must-not-be-preserved\n", encoding="utf-8")
 
@@ -95,9 +95,15 @@ def test_fetch_discards_dirty_runtime_cache_without_exposing_git_details(tmp_pat
         str(known_hosts),
     )
 
-    assert completed.returncode == 0, completed.stderr
+    assert completed.returncode == 78, completed.stderr
     assert completed.stderr == ""
     payload = yaml.safe_load(completed.stdout)
-    assert payload["ok"] is True
-    assert payload["result"]["registry_root"] == str(registry.resolve())
-    assert not (registry / "local-state.yml").exists()
+    assert payload == {
+        "schema_version": "infralink.ops.registry-checkout/v1",
+        "ok": False,
+        "command": {"path": ["fetch"], "args": {"registry_root": str(registry)}},
+        "error": {"code": "registry_checkout_failed"},
+        "next_actions": [],
+        "meta": {"truncated": False},
+    }
+    assert (registry / "local-state.yml").read_text(encoding="utf-8") == "must-not-be-preserved\n"
