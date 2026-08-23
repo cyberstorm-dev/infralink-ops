@@ -36,10 +36,14 @@ normal_mounts=(
     --mount type=bind,src=/opt/services,dst=/opt/services
     --mount type=bind,src=/var/log,dst=/var/log
     --mount type=bind,src=/run,dst=/run
-    --mount type=bind,src=/usr/local/sbin,dst=/usr/local/sbin
-    --mount type=bind,src=/etc/systemd/system,dst=/etc/systemd/system
     --mount type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock
     --mount type=bind,src=/etc/infralink/registry-read,dst=/etc/infralink/registry-read,readonly
+)
+
+host_interface_mounts=(
+    --mount type=bind,src=/usr/local/bin,dst=/infralink-host-interface/usr/local/bin
+    --mount type=bind,src=/usr/local/sbin,dst=/infralink-host-interface/usr/local/sbin
+    --mount type=bind,src=/etc/systemd/system,dst=/infralink-host-interface/etc/systemd/system
 )
 
 controller_env=(
@@ -68,7 +72,8 @@ run_reconcile() {
         --network=host \
         "${controller_env[@]}" \
         "${normal_mounts[@]}" \
-        --mount type=bind,src=/usr/local/bin/infralink,dst=/usr/local/bin/infralink \
+        -e INFRALINK_HOST_ROOT=/infralink-host-interface \
+        "${host_interface_mounts[@]}" \
         "$image" "$mode" "$@"
 }
 
