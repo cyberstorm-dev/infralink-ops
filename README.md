@@ -53,3 +53,10 @@ affected consumers or services with changed or stale direct config-file binds.
 It returns the selected consumer and service identifiers in a bounded YAML
 envelope. It does not fetch Git, choose registry state, resolve secrets, or
 infer environment-specific paths.
+
+`infralink-controller-firewall render|verify` is the matching public firewall
+runtime. It receives an explicit registry root, host UUID, and rendered Compose
+file; it validates the portable Infralink firewall declaration, renders the
+owned nftables table, or verifies its declared rules at runtime. It does not
+fetch Git, select a registry revision, resolve secrets, or apply firewall
+state. Controller-owned egress-SNAT realization remains a separate runtime.
