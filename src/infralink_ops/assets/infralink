@@ -61,6 +61,13 @@ docker pull "$image" >&2
 exec docker run --rm -i --pull never --network=host \
     -e INFRALINK_HOST_UUID \
     -e INFRALINK_REGISTRY=/var/lib/infralink/registry \
+    -e INFRALINK_EDGES=/var/lib/infralink/registry/network/main-dev/edges/edges.yml \
+    -e INFRALINK_OBSERVATION_PLAN=/var/lib/infralink/registry/operations/observation/core-plan.json \
+    -e INFRALINK_ADAPTER_BINDINGS=/var/lib/infralink/registry/operations/observation/adapter-bindings.yml \
+    -e INFRALINK_GATUS_FRAGMENT=/var/lib/infralink/registry/operations/observation/rendered/gatus/core-dependencies.yml \
+    -e INFRALINK_CONTROL_ROOT=/app \
+    -e INFRALINK_GATUS_URL \
+    -e INFRALINK_GATUS_TOKEN \
     "${operator_mounts[@]}" \
     --entrypoint /usr/local/bin/infralink \
     "$image" "$@"

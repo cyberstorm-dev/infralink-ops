@@ -12,8 +12,27 @@ def test_host_interface_assets_are_packaged_with_canonical_runtime_contract() ->
     assert all(path.is_file() for path in (operator_cli, launcher, service, timer))
     operator_cli_source = operator_cli.read_text(encoding="utf-8")
     assert "--network=host" in operator_cli_source
-    assert "network/main-dev" not in operator_cli_source
-    assert "operations/observation" not in operator_cli_source
+    assert "INFRALINK_CONTROL_ROOT=/app" in operator_cli_source
+    assert (
+        "INFRALINK_EDGES=/var/lib/infralink/registry/network/main-dev/edges/edges.yml"
+        in operator_cli_source
+    )
+    assert (
+        "INFRALINK_OBSERVATION_PLAN="
+        "/var/lib/infralink/registry/operations/observation/core-plan.json" in operator_cli_source
+    )
+    assert (
+        "INFRALINK_ADAPTER_BINDINGS="
+        "/var/lib/infralink/registry/operations/observation/adapter-bindings.yml"
+        in operator_cli_source
+    )
+    assert (
+        "INFRALINK_GATUS_FRAGMENT="
+        "/var/lib/infralink/registry/operations/observation/rendered/gatus/core-dependencies.yml"
+        in operator_cli_source
+    )
+    assert "-e INFRALINK_GATUS_URL" in operator_cli_source
+    assert "-e INFRALINK_GATUS_TOKEN" in operator_cli_source
     assert "/var/lib/infralink/registry" in launcher.read_text(encoding="utf-8")
     assert "--pull always" in launcher.read_text(encoding="utf-8")
     launcher_source = launcher.read_text(encoding="utf-8")
