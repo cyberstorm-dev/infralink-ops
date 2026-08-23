@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HOST_ENV_FILE="${INFRALINK_HOST_ENV_FILE:-/etc/infralink/host.env}"
+
+usage() {
+    cat <<'EOF'
+Usage: infralink-host <doctor|reconcile|bootstrap --apply> [arguments...]
+EOF
+}
+
+if [[ ! -r "$HOST_ENV_FILE" ]]; then
+    printf 'Missing host environment: %s\n' "$HOST_ENV_FILE" >&2
+    exit 78
+fi
+
+set -a
+# shellcheck disable=SC1090
+source "$HOST_ENV_FILE"
+set +a
+
+image="${INFRALINK_CONTROLLER_IMAGE:-}"
+if [[ -z "$image" ]]; then
+    printf '%s\n' 'INFRALINK_CONTROLLER_IMAGE must name a seed image' >&2
+    exit 78
+fi
+
+mode="${1:-}"
+shift || true
+
+normal_mounts=(
+    --mount type=bind,src=/etc/infralink/host.env,dst=/etc/infralink/host.env,readonly
+    --mount type=bind,src=/etc/infralink/registry-known_hosts,dst=/etc/infralink/registry-known_hosts,readonly
+    --mount type=bind,src=/var/lib/infralink/registry,dst=/var/lib/infralink/registry
+    --mount type=bind,src=/var/lib,dst=/var/lib
+    --mount type=bind,src=/opt/services,dst=/opt/services
+    --mount type=bind,src=/var/log,dst=/var/log
+    --mount type=bind,src=/run,dst=/run
+    --mount type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock
+    --mount type=bind,src=/etc/infralink/registry-read,dst=/etc/infralink/registry-read,readonly
+)
+
+controller_env=(
+    -e INFRALINK_HOST_UUID
+    -e INFRALINK_CONTROLLER_IMAGE
+    -e BWS_ACCESS_TOKEN
+    -e INFRALINK_REGISTRY_DEPLOY_KEY_SECRET_ID
+    -e INFRALINK_REGISTRY_REPO_URL
+    -e INFRALINK_REGISTRY_REF
+    -e INFRALINK_REGISTRY_KNOWN_HOSTS_FILE
+    -e GIT_SSH_COMMAND
+)
+
+run_normal() {
+    exec docker run --rm --pull always \
+        --network=host \
+        "${controller_env[@]}" \
+        "${normal_mounts[@]}" \
+        "$image" "$mode" "$@"
+}
+
+case "$mode" in
+    doctor|reconcile)
+        run_normal "$@"
+        ;;
+    bootstrap)
+        if [[ "${1:-}" != "--apply" ]]; then
+            printf '%s\n' 'bootstrap requires --apply' >&2
+            exit 64
+        fi
+        shift
+        exec docker run --rm --pull always \
+            --privileged \
+            --pid=host \
+            --network=host \
+            "${controller_env[@]}" \
+            -e INFRALINK_BOOTSTRAP_APPLY=1 \
+            -e INFRALINK_HOST_ROOT=/host \
+            "${normal_mounts[@]}" \
+            --mount type=bind,src=/,dst=/host \
+            "$image" bootstrap "$@"
+        ;;
+    --help|-h|help|"")
+        usage
+        ;;
+    *)
+        printf 'Unknown host mode: "%s"\n' "$mode" >&2
+        usage >&2
+        exit 64
+        ;;
+esac

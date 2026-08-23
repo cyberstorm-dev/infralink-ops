@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Infralink controller reconciliation every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=infralink-host-reconcile.service
+
+[Install]
+WantedBy=timers.target
