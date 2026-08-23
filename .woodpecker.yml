@@ -11,3 +11,35 @@ steps:
       - python -m venv /tmp/infralink-ops-wheel
       - /tmp/infralink-ops-wheel/bin/pip install --disable-pip-version-check dist/*.whl
       - cd /tmp && /tmp/infralink-ops-wheel/bin/python -c 'import infralink_ops'
+
+  build-infralink-ops-controller:
+    image: woodpeckerci/plugin-docker-buildx
+    settings:
+      registry: ghcr.io
+      repo: ghcr.io/cyberstorm-dev/infralink-ops-controller
+      dockerfile: Dockerfile.controller
+      context: .
+      dry_run: true
+      tags:
+        - local-test-${CI_COMMIT_SHA:0:7}
+
+  publish-infralink-ops-controller:
+    image: woodpeckerci/plugin-docker-buildx
+    depends_on:
+      - build-infralink-ops-controller
+    when:
+      - event: push
+        branch: main
+    settings:
+      registry: ghcr.io
+      repo: ghcr.io/cyberstorm-dev/infralink-ops-controller
+      dockerfile: Dockerfile.controller
+      context: .
+      tags:
+        - head
+        - main
+        - sha-${CI_COMMIT_SHA:0:7}
+      username:
+        from_secret: ghcr_username
+      password:
+        from_secret: ghcr_token
