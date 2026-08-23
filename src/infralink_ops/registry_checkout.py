@@ -29,7 +29,7 @@ def fetch_configured_registry(
     identity_file: Path,
     known_hosts_file: Path,
 ) -> RegistryCheckout:
-    """Fetch one declared ref into one existing clean registry checkout."""
+    """Converge one existing registry runtime cache to its declared ref."""
 
     root = registry_root.resolve()
     if not configured_remote:
@@ -43,16 +43,6 @@ def fetch_configured_registry(
     origin = _git(root, "remote", "get-url", "origin")
     if origin != configured_remote:
         raise RegistryCheckoutError("registry checkout origin does not match declared remote")
-
-    status = _git(
-        root,
-        "status",
-        "--porcelain=v1",
-        "--untracked-files=all",
-        "--ignore-submodules=none",
-    )
-    if status:
-        raise RegistryCheckoutError("registry checkout contains local changes")
 
     git_ssh_command = " ".join(
         (
@@ -71,11 +61,23 @@ def fetch_configured_registry(
         root,
         "fetch",
         "--prune",
+        "--no-recurse-submodules",
         "origin",
         configured_ref,
         extra_environment={"GIT_SSH_COMMAND": git_ssh_command},
     )
+    _git(root, "reset", "--hard", "FETCH_HEAD")
+    _git(root, "clean", "-ffd")
     _git(root, "checkout", "--detach", "FETCH_HEAD")
+    status = _git(
+        root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+    )
+    if status:
+        raise RegistryCheckoutError("registry checkout could not be converged")
     revision = _git(root, "rev-parse", "HEAD")
     if len(revision) != 40 or any(character not in "0123456789abcdef" for character in revision):
         raise RegistryCheckoutError("registry checkout did not resolve to a full SHA-1 revision")
