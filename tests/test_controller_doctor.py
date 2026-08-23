@@ -74,16 +74,28 @@ def test_rejects_reconcile_evidence_for_a_different_configured_source(tmp_path: 
 
 def test_reports_healthy_only_with_matching_local_runtime_evidence(tmp_path: Path) -> None:
     registry, revision = _registry(tmp_path)
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    key = tmp_path / "registry-read"
+    key.write_text("key\n", encoding="utf-8")
+    services = tmp_path / "services"
+    services.mkdir()
+    (services / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    textfiles = tmp_path / "textfiles"
+    textfiles.mkdir()
     host_env = tmp_path / "host.env"
     host_env.write_text(
         f"INFRALINK_HOST_UUID={UUID}\n"
         f"INFRALINK_CONTROLLER_IMAGE={IMAGE}\n"
         "INFRALINK_REGISTRY_REF=main\n"
-        f"INFRALINK_REGISTRY_REPO_URL={REPOSITORY}\n",
+        f"INFRALINK_REGISTRY_REPO_URL={REPOSITORY}\n"
+        f"INFRALINK_REGISTRY_DIR={registry}\n"
+        f"INFRALINK_REGISTRY_KEY_FILE={key}\n"
+        f"INFRALINK_RUNTIME_DIR={runtime}\n"
+        f"INFRALINK_SERVICES_DIR={services}\n"
+        f"INFRALINK_NODE_EXPORTER_TEXTFILE_DIR={textfiles}\n",
         encoding="utf-8",
     )
-    runtime = tmp_path / "runtime"
-    runtime.mkdir()
     (runtime / "reconcile-result.yml").write_text(
         "status: success\n"
         f"host_uuid: {UUID}\n"
@@ -94,13 +106,6 @@ def test_reports_healthy_only_with_matching_local_runtime_evidence(tmp_path: Pat
         f"controller_digest: {IMAGE}\n",
         encoding="utf-8",
     )
-    key = tmp_path / "registry-read"
-    key.write_text("key\n", encoding="utf-8")
-    services = tmp_path / "services"
-    services.mkdir()
-    (services / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
-    textfiles = tmp_path / "textfiles"
-    textfiles.mkdir()
     (textfiles / "infralink-controller-reconcile.prom").write_text(
         f'infralink_controller_reconcile_converged{{revision="{revision}"}} 1\n'
         "infralink_controller_reconcile_converged 1\n",
@@ -122,16 +127,6 @@ def test_reports_healthy_only_with_matching_local_runtime_evidence(tmp_path: Pat
         [
             "--host-env",
             str(host_env),
-            "--registry",
-            str(registry),
-            "--registry-key",
-            str(key),
-            "--runtime-dir",
-            str(runtime),
-            "--services-dir",
-            str(services),
-            "--textfile-directory",
-            str(textfiles),
             "--docker",
             str(docker),
         ]

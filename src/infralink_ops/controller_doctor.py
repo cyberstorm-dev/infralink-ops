@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -85,6 +86,19 @@ def _result(path: Path) -> dict[str, Any]:
     return value
 
 
+def _path_argument(
+    explicit: Path | None,
+    environment: dict[str, str],
+    key: str,
+    default: str,
+) -> Path:
+    """Prefer explicit CLI paths, then the configured host runtime contract."""
+
+    if explicit is not None:
+        return explicit
+    return Path(environment.get(key, default))
+
+
 def _run(docker: str, *arguments: str, failure: type[DoctorError]) -> str:
     try:
         result = subprocess.run(
@@ -146,14 +160,16 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
     """Collect local controller evidence without selecting or mutating state."""
 
     parser = EnvelopeParser(prog="infralink-controller-doctor")
-    parser.add_argument("--host-env", type=Path, default=Path("/etc/infralink/host.env"))
-    parser.add_argument("--registry", type=Path, default=Path("/var/lib/infralink/registry"))
-    parser.add_argument("--registry-key", type=Path, default=Path("/etc/infralink/registry-read"))
-    parser.add_argument("--runtime-dir", type=Path, default=Path("/var/lib/infralink"))
-    parser.add_argument("--services-dir", type=Path, default=Path("/opt/services"))
     parser.add_argument(
-        "--textfile-directory", type=Path, default=Path("/var/lib/node_exporter/textfile_collector")
+        "--host-env",
+        type=Path,
+        default=Path(os.environ.get("INFRALINK_HOST_ENV_FILE", "/etc/infralink/host.env")),
     )
+    parser.add_argument("--registry", type=Path)
+    parser.add_argument("--registry-key", type=Path)
+    parser.add_argument("--runtime-dir", type=Path)
+    parser.add_argument("--services-dir", type=Path)
+    parser.add_argument("--textfile-directory", type=Path)
     parser.add_argument("--docker", default="docker")
     try:
         args = parser.parse_args(argv)
@@ -170,27 +186,57 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
             64,
         )
 
+    registry = _path_argument(
+        args.registry,
+        environment,
+        "INFRALINK_REGISTRY_DIR",
+        "/var/lib/infralink/registry",
+    )
+    registry_key = _path_argument(
+        args.registry_key,
+        environment,
+        "INFRALINK_REGISTRY_KEY_FILE",
+        "/etc/infralink/registry-read",
+    )
+    runtime_dir = _path_argument(
+        args.runtime_dir,
+        environment,
+        "INFRALINK_RUNTIME_DIR",
+        "/var/lib/infralink",
+    )
+    services_dir = _path_argument(
+        args.services_dir,
+        environment,
+        "INFRALINK_SERVICES_DIR",
+        "/opt/services",
+    )
+    textfile_directory = _path_argument(
+        args.textfile_directory,
+        environment,
+        "INFRALINK_NODE_EXPORTER_TEXTFILE_DIR",
+        "/var/lib/node_exporter/textfile_collector",
+    )
     payload = _payload(
         status="unhealthy",
         reason="unknown",
         environment=environment,
-        registry=args.registry,
+        registry=registry,
         head=None,
     )
     host_id = environment.get("INFRALINK_HOST_UUID")
     if not environment.get("INFRALINK_CONTROLLER_IMAGE"):
         payload["reason"] = "controller_image_invalid"
         return payload, 78
-    if not args.registry.is_dir() or not (args.registry / ".git").exists():
+    if not registry.is_dir() or not (registry / ".git").exists():
         payload["reason"] = "registry_checkout_missing"
         return payload, 78
-    if not args.registry_key.is_file():
+    if not registry_key.is_file():
         payload["reason"] = "registry_key_missing"
         return payload, 78
-    if not host_id or not (args.registry / "hosts" / host_id / "manifest.yml").is_file():
+    if not host_id or not (registry / "hosts" / host_id / "manifest.yml").is_file():
         payload["reason"] = "host_manifest_missing"
         return payload, 78
-    evidence_path = args.runtime_dir / "reconcile-result.yml"
+    evidence_path = runtime_dir / "reconcile-result.yml"
     if not evidence_path.is_file():
         payload["status"] = "unknown"
         payload["reason"] = "controller_reconcile_evidence_missing"
@@ -201,7 +247,7 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
         payload["reason"] = "controller_reconcile_evidence_stale"
         return payload, 78
     try:
-        checkout = verify_registry_revision(args.registry, expected_revision=head)
+        checkout = verify_registry_revision(registry, expected_revision=head)
     except RegistryCheckoutError:
         payload["reason"] = "controller_reconcile_evidence_stale"
         return payload, 78
@@ -226,7 +272,7 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
         "reference": evidence["controller_reference"],
         "digest": evidence["controller_digest"],
     }
-    compose = args.services_dir / "docker-compose.yml"
+    compose = services_dir / "docker-compose.yml"
     if not compose.is_file():
         payload["reason"] = "rendered_compose_missing"
         return payload, 78
@@ -253,8 +299,8 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
     except (FirewallError, OSError, UnicodeDecodeError):
         payload["reason"] = "declared_firewall_runtime_drift"
         return payload, 78
-    metric = args.textfile_directory / "infralink-controller-reconcile.prom"
-    if not args.textfile_directory.is_dir():
+    metric = textfile_directory / "infralink-controller-reconcile.prom"
+    if not textfile_directory.is_dir():
         payload["reason"] = "node_exporter_textfile_directory_missing"
         return payload, 78
     try:
