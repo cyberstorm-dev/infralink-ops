@@ -65,6 +65,7 @@ def fetch_configured_registry(
     origin = _git(root, "remote", "get-url", "origin")
     if origin != configured_remote:
         raise RegistryCheckoutError("registry checkout origin does not match declared remote")
+    _require_clean_top_level_checkout(root)
 
     git_ssh_command = " ".join(
         (
@@ -88,6 +89,7 @@ def fetch_configured_registry(
         configured_ref,
         extra_environment={"GIT_SSH_COMMAND": git_ssh_command},
     )
+    _require_clean_top_level_checkout(root)
     _git(root, "reset", "--hard", "FETCH_HEAD")
     _git(root, "clean", "-ffd")
     _git(root, "checkout", "--detach", "FETCH_HEAD")
@@ -109,6 +111,18 @@ def _require_existing_checkout(root: Path) -> None:
         raise RegistryCheckoutError("registry checkout is invalid") from error
     if Path(top_level).resolve() != root:
         raise RegistryCheckoutError("registry checkout root is not the Git top-level")
+
+
+def _require_clean_top_level_checkout(root: Path) -> None:
+    status = _git(
+        root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--ignore-submodules=all",
+    )
+    if status:
+        raise RegistryCheckoutError("registry checkout is dirty")
 
 
 def _require_readable_file(path: Path, description: str) -> None:
