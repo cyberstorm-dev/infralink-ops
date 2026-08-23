@@ -11,6 +11,16 @@ def test_host_interface_assets_are_packaged_with_canonical_runtime_contract() ->
     assert all(path.is_file() for path in (launcher, service, timer))
     assert "/var/lib/infralink/registry" in launcher.read_text(encoding="utf-8")
     assert "--pull always" in launcher.read_text(encoding="utf-8")
+    launcher_source = launcher.read_text(encoding="utf-8")
+    doctor_runner = launcher_source.split("run_reconcile()", maxsplit=1)[0]
+    assert "--privileged" not in doctor_runner
+    assert "--pid=host" not in doctor_runner
+    assert "--privileged" in launcher_source.split("run_reconcile()", maxsplit=1)[1]
+    assert "--pid=host" in launcher_source.split("run_reconcile()", maxsplit=1)[1]
+    assert "doctor)\n        run_normal" in launcher_source
+    assert "reconcile)\n        run_reconcile" in launcher_source
+    assert "src=/usr/local/sbin,dst=/usr/local/sbin" in launcher.read_text(encoding="utf-8")
+    assert "src=/etc/systemd/system,dst=/etc/systemd/system" in launcher.read_text(encoding="utf-8")
     assert service.read_text(encoding="utf-8") == (
         "[Unit]\n"
         "Description=Infralink controller reconcile\n"

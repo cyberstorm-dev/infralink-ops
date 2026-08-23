@@ -36,6 +36,8 @@ normal_mounts=(
     --mount type=bind,src=/opt/services,dst=/opt/services
     --mount type=bind,src=/var/log,dst=/var/log
     --mount type=bind,src=/run,dst=/run
+    --mount type=bind,src=/usr/local/sbin,dst=/usr/local/sbin
+    --mount type=bind,src=/etc/systemd/system,dst=/etc/systemd/system
     --mount type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock
     --mount type=bind,src=/etc/infralink/registry-read,dst=/etc/infralink/registry-read,readonly
 )
@@ -59,9 +61,22 @@ run_normal() {
         "$image" "$mode" "$@"
 }
 
+run_reconcile() {
+    exec docker run --rm --pull always \
+        --privileged \
+        --pid=host \
+        --network=host \
+        "${controller_env[@]}" \
+        "${normal_mounts[@]}" \
+        "$image" "$mode" "$@"
+}
+
 case "$mode" in
-    doctor|reconcile)
+    doctor)
         run_normal "$@"
+        ;;
+    reconcile)
+        run_reconcile "$@"
         ;;
     bootstrap)
         if [[ "${1:-}" != "--apply" ]]; then
