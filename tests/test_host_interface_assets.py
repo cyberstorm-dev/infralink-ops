@@ -44,10 +44,17 @@ def test_host_interface_assets_are_packaged_with_canonical_runtime_contract() ->
     assert "doctor)\n        run_normal" in launcher_source
     assert "reconcile)\n        run_reconcile" in launcher_source
     reconcile_runner = launcher_source.split("run_reconcile()", maxsplit=1)[1]
-    assert "src=/usr/local/bin/infralink,dst=/usr/local/bin/infralink" in reconcile_runner
+    assert "-e INFRALINK_HOST_ROOT=/infralink-host-interface" in reconcile_runner
+    assert "src=/usr/local/bin,dst=/infralink-host-interface/usr/local/bin" in launcher_source
+    assert "src=/usr/local/sbin,dst=/infralink-host-interface/usr/local/sbin" in launcher_source
+    assert (
+        "src=/etc/systemd/system,dst=/infralink-host-interface/etc/systemd/system"
+        in launcher_source
+    )
+    assert "src=/usr/local/bin/infralink,dst=/usr/local/bin/infralink" not in launcher_source
     assert "src=/usr/local/bin,dst=/usr/local/bin" not in launcher_source
-    assert "src=/usr/local/sbin,dst=/usr/local/sbin" in launcher.read_text(encoding="utf-8")
-    assert "src=/etc/systemd/system,dst=/etc/systemd/system" in launcher.read_text(encoding="utf-8")
+    assert "src=/usr/local/sbin,dst=/usr/local/sbin" not in doctor_runner
+    assert "src=/etc/systemd/system,dst=/etc/systemd/system" not in doctor_runner
     assert service.read_text(encoding="utf-8") == (
         "[Unit]\n"
         "Description=Infralink controller reconcile\n"
