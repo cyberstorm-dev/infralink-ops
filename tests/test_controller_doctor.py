@@ -109,7 +109,7 @@ def test_reports_healthy_only_with_matching_local_runtime_evidence(tmp_path: Pat
     docker = tmp_path / "docker"
     docker.write_text(
         "#!/bin/sh\n"
-        "case \"$*\" in\n"
+        'case "$*" in\n'
         "  *' config --format json') printf '%s\\n' '{\"services\":{}}' ;;\n"
         "  *' ps --all --format json') printf '%s\\n' '[]' ;;\n"
         "  *) exit 1 ;;\n"
@@ -179,7 +179,7 @@ def test_rejects_metric_substrings_that_would_falsely_report_convergence(tmp_pat
     docker = tmp_path / "docker"
     docker.write_text(
         "#!/bin/sh\n"
-        "case \"$*\" in\n"
+        'case "$*" in\n'
         "  *' config --format json') printf '%s\\n' '{\"services\":{}}' ;;\n"
         "  *' ps --all --format json') printf '%s\\n' '[]' ;;\n"
         "  *) exit 1 ;;\n"

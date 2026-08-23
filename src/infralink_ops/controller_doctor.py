@@ -206,8 +206,11 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
         payload["reason"] = "controller_reconcile_evidence_stale"
         return payload, 78
     payload = _payload(
-        status="unhealthy", reason="controller_reconcile_evidence_stale", environment=environment,
-        registry=checkout.root, head=checkout.revision
+        status="unhealthy",
+        reason="controller_reconcile_evidence_stale",
+        environment=environment,
+        registry=checkout.root,
+        head=checkout.revision,
     )
     if (
         evidence.get("status") != "success"
