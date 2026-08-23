@@ -134,6 +134,58 @@ def test_discards_retired_initialized_submodule_and_preserves_active_one(tmp_pat
     assert _git("status", "--porcelain=v1", "--untracked-files=all", cwd=registry) == ""
 
 
+def test_parent_checkout_ignores_declared_submodule_worktree_state(tmp_path: Path) -> None:
+    origin, registry, identity, known_hosts = _checkout(tmp_path)
+    submodule = tmp_path / "submodule"
+    submodule.mkdir()
+    _git("init", "-q", "-b", "main", cwd=submodule)
+    _git("config", "user.email", "test@example.invalid", cwd=submodule)
+    _git("config", "user.name", "Test", cwd=submodule)
+    (submodule / "value.txt").write_text("one\n", encoding="utf-8")
+    _git("add", "value.txt", cwd=submodule)
+    _git("commit", "-qm", "initial", cwd=submodule)
+
+    _git(
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        str(submodule),
+        "declared-child",
+        cwd=origin,
+    )
+    _git("commit", "-qm", "add child", cwd=origin)
+    expected = _git("rev-parse", "HEAD", cwd=origin)
+    _git("-c", "protocol.file.allow=always", "pull", cwd=registry)
+    _git(
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "update",
+        "--init",
+        "--checkout",
+        cwd=registry,
+    )
+
+    (submodule / "value.txt").write_text("two\n", encoding="utf-8")
+    _git("commit", "-am", "advance", cwd=submodule)
+    _git("fetch", cwd=registry / "declared-child")
+    _git("checkout", "origin/main", cwd=registry / "declared-child")
+
+    result = fetch_configured_registry(
+        registry,
+        configured_remote=str(origin),
+        configured_ref="main",
+        identity_file=identity,
+        known_hosts_file=known_hosts,
+    )
+
+    assert result.revision == expected
+    assert _git("rev-parse", "HEAD", cwd=registry) == expected
+    assert _git("status", "--porcelain=v1", "--ignore-submodules=all", cwd=registry) == ""
+    assert "declared-child" in _git("status", "--porcelain=v1", cwd=registry)
+
+
 def test_rejects_origin_that_differs_from_declared_remote(tmp_path: Path) -> None:
     origin, registry, identity, known_hosts = _checkout(tmp_path)
 
