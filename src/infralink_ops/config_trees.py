@@ -135,7 +135,15 @@ def _git_revision(root: Path) -> str:
 
 def _git_status(root: Path) -> str:
     completed = subprocess.run(
-        ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
+        [
+            "git",
+            "-C",
+            str(root),
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--ignore-submodules=all",
+        ],
         check=False,
         capture_output=True,
         text=True,
