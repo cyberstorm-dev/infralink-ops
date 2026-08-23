@@ -77,7 +77,7 @@ def test_fetch_returns_the_detached_configured_registry_revision(tmp_path: Path)
     assert _git("rev-parse", "HEAD", cwd=registry) == expected_revision
 
 
-def test_fetch_returns_a_bounded_error_without_git_details(tmp_path: Path) -> None:
+def test_fetch_discards_dirty_runtime_cache_without_exposing_git_details(tmp_path: Path) -> None:
     origin, registry, identity, known_hosts = _checkout(tmp_path)
     (registry / "local-state.yml").write_text("must-not-be-preserved\n", encoding="utf-8")
 
@@ -95,9 +95,9 @@ def test_fetch_returns_a_bounded_error_without_git_details(tmp_path: Path) -> No
         str(known_hosts),
     )
 
-    assert completed.returncode == 78
+    assert completed.returncode == 0, completed.stderr
     assert completed.stderr == ""
     payload = yaml.safe_load(completed.stdout)
-    assert payload["ok"] is False
-    assert payload["error"] == {"code": "registry_checkout_failed"}
-    assert "local changes" not in completed.stdout
+    assert payload["ok"] is True
+    assert payload["result"]["registry_root"] == str(registry.resolve())
+    assert not (registry / "local-state.yml").exists()
