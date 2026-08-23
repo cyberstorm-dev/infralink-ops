@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Public host-side operator entrypoint. The controller image owns the CLI;
+# this wrapper supplies the configured registry and bounded runtime mounts.
+HOST_ENV_FILE="${INFRALINK_HOST_ENV_FILE:-/etc/infralink/host.env}"
+
+yaml_quote() {
+    local value="$1"
+    value="${value//\'/\'\'}"
+    printf "'%s'" "$value"
+}
+
+emit_preflight_error() {
+    local code="$1"
+    local message="$2"
+    local fix="$3"
+    local detail_key="$4"
+    local detail_value="$5"
+    local raw="infralink"
+    local argument
+    for argument in "${ORIGINAL_ARGS[@]}"; do
+        raw+=" $argument"
+    done
+    printf 'schema_version: infralink.cli/v1\nok: false\ncommand:\n  raw: %s\n  parsed:\n    path: []\n    args: {}\n    flags: []\nerror:\n  code: %s\n  message: %s\n  fix: %s\n  details:\n    %s: %s\nnext_actions: []\n' \
+        "$(yaml_quote "$raw")" "$code" "$(yaml_quote "$message")" "$(yaml_quote "$fix")" \
+        "$detail_key" "$(yaml_quote "$detail_value")" >&2
+}
+
+ORIGINAL_ARGS=("$@")
+if [[ ! -r "$HOST_ENV_FILE" ]]; then
+    emit_preflight_error configuration_required "Host environment is missing" \
+        "Run host bootstrap --apply for this declared host" host_environment "$HOST_ENV_FILE"
+    exit 78
+fi
+
+set -a
+# shellcheck disable=SC1090
+source "$HOST_ENV_FILE"
+set +a
+
+image="${INFRALINK_CONTROLLER_IMAGE:-}"
+if [[ -z "$image" ]]; then
+    emit_preflight_error configuration_required "Controller image is not configured" \
+        "Run host bootstrap --apply for this declared host" environment INFRALINK_CONTROLLER_IMAGE
+    exit 78
+fi
+
+operator_mounts=(
+    --mount type=bind,src=/var/lib/infralink/registry,dst=/var/lib/infralink/registry,readonly
+    --mount type=bind,src=/var/lib/infralink,dst=/var/lib/infralink
+    --mount type=bind,src=/var/log/infralink,dst=/var/log/infralink
+)
+if [[ -d /root/.ssh ]]; then
+    operator_mounts+=(--mount type=bind,src=/root/.ssh,dst=/root/.ssh,readonly)
+fi
+
+# Docker writes pull progress to stdout. Keep it off the typed CLI/MCP stream.
+docker pull "$image" >&2
+
+exec docker run --rm -i --pull never --network=host \
+    -e INFRALINK_HOST_UUID \
+    -e INFRALINK_REGISTRY=/var/lib/infralink/registry \
+    "${operator_mounts[@]}" \
+    --entrypoint /usr/local/bin/infralink \
+    "$image" "$@"

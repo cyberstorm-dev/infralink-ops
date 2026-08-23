@@ -4,11 +4,16 @@ from __future__ import annotations
 def test_host_interface_assets_are_packaged_with_canonical_runtime_contract() -> None:
     from infralink_ops.host_interface_assets import asset_path
 
+    operator_cli = asset_path("infralink")
     launcher = asset_path("infralink-host")
     service = asset_path("infralink-host-reconcile.service")
     timer = asset_path("infralink-host-reconcile.timer")
 
-    assert all(path.is_file() for path in (launcher, service, timer))
+    assert all(path.is_file() for path in (operator_cli, launcher, service, timer))
+    operator_cli_source = operator_cli.read_text(encoding="utf-8")
+    assert "--network=host" in operator_cli_source
+    assert "network/main-dev" not in operator_cli_source
+    assert "operations/observation" not in operator_cli_source
     assert "/var/lib/infralink/registry" in launcher.read_text(encoding="utf-8")
     assert "--pull always" in launcher.read_text(encoding="utf-8")
     launcher_source = launcher.read_text(encoding="utf-8")

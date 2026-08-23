@@ -43,6 +43,7 @@ class HostInterfaceAsset:
 
 
 ASSETS = (
+    HostInterfaceAsset("infralink", "/usr/local/bin/infralink", 0o755),
     HostInterfaceAsset("infralink-host", "/usr/local/sbin/infralink-host", 0o755),
     HostInterfaceAsset(
         "infralink-host-reconcile.service",
