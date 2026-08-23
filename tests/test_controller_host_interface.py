@@ -53,7 +53,7 @@ def test_refresh_materializes_only_packaged_host_interface_assets_atomically(
     assert calls == [SYSTEMD_RELOAD]
 
 
-def test_refresh_is_idempotent_and_reloads_systemd_when_assets_match(
+def test_refresh_is_idempotent_without_reloading_systemd_when_assets_match(
     tmp_path: Path, monkeypatch
 ) -> None:
     import infralink_ops.controller_host_interface as host_interface
@@ -75,8 +75,8 @@ def test_refresh_is_idempotent_and_reloads_systemd_when_assets_match(
 
     assert second_status == 0
     assert second["result"]["changed"] is False
-    assert second["result"]["systemd_reloaded"] is True
-    assert calls == [SYSTEMD_RELOAD]
+    assert second["result"]["systemd_reloaded"] is False
+    assert calls == []
 
 
 def test_refresh_preflights_every_destination_before_writing(tmp_path: Path, monkeypatch) -> None:
@@ -97,7 +97,9 @@ def test_refresh_preflights_every_destination_before_writing(tmp_path: Path, mon
     assert not (host_root / "usr/local/sbin/infralink-host").exists()
 
 
-def test_refresh_retries_systemd_reload_after_a_prior_failure(tmp_path: Path, monkeypatch) -> None:
+def test_refresh_rolls_back_changed_units_when_systemd_reload_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
     import subprocess
 
     import infralink_ops.controller_host_interface as host_interface
@@ -116,6 +118,8 @@ def test_refresh_retries_systemd_reload_after_a_prior_failure(tmp_path: Path, mo
     first, first_status = host_interface.main(["refresh", "--host-root", str(host_root)])
     assert first_status == 78
     assert first["error"] == {"code": "host_interface_systemd_reload_failed"}
+    assert not (host_root / "etc/systemd/system/infralink-host-reconcile.service").exists()
+    assert not (host_root / "etc/systemd/system/infralink-host-reconcile.timer").exists()
 
     calls: list[list[str]] = []
     monkeypatch.setattr(
@@ -126,5 +130,6 @@ def test_refresh_retries_systemd_reload_after_a_prior_failure(tmp_path: Path, mo
     second, second_status = host_interface.main(["refresh", "--host-root", str(host_root)])
 
     assert second_status == 0
-    assert second["result"]["changed"] is False
+    assert second["result"]["changed"] is True
+    assert second["result"]["systemd_reloaded"] is True
     assert calls == [SYSTEMD_RELOAD]
