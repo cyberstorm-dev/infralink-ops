@@ -41,6 +41,7 @@ def test_refresh_materializes_only_packaged_host_interface_assets_atomically(
         "changed": True,
         "systemd_reloaded": True,
         "assets": [
+            {"path": "/usr/local/bin/infralink", "mode": "0755"},
             {"path": "/usr/local/sbin/infralink-host", "mode": "0755"},
             {"path": "/etc/systemd/system/infralink-host-reconcile.service", "mode": "0644"},
             {"path": "/etc/systemd/system/infralink-host-reconcile.timer", "mode": "0644"},
