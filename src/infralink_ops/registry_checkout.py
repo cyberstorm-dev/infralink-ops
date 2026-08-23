@@ -74,7 +74,7 @@ def fetch_configured_registry(
         "status",
         "--porcelain=v1",
         "--untracked-files=all",
-        "--ignore-submodules=none",
+        "--ignore-submodules=all",
     )
     if status:
         raise RegistryCheckoutError("registry checkout could not be converged")
