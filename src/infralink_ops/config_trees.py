@@ -43,7 +43,9 @@ def preflight_config_trees(
             services_root, declaration.get("target")
         )
         _metadata(declaration)
-        source_files, source_directories = _preflight_source_tree(source)
+        source_files, source_directories = _preflight_source_tree(
+            source, _tracked_source_files(root, expected_revision, source)
+        )
         _preflight_target_tree(target, source_files, source_directories)
         for existing_target in declared_targets:
             if _targets_overlap(existing_target, relative_target):
@@ -69,7 +71,9 @@ def materialize_config_tree(
     source = _declared_source_directory(root, declaration.get("source"))
     target, relative_target = _declared_target_directory(services_root, declaration.get("target"))
     metadata = _metadata(declaration)
-    source_files, source_directories = _preflight_source_tree(source)
+    source_files, source_directories = _preflight_source_tree(
+        source, _tracked_source_files(root, expected_revision, source)
+    )
     _preflight_target_tree(target, source_files, source_directories)
     return _synchronize_tree(
         source,
@@ -148,13 +152,49 @@ def _declared_source_directory(root: Path, value: Any) -> Path:
     if relative.is_absolute() or ".." in relative.parts:
         raise ValueError(f"source must be a directory below registry root: {value}")
     source = root.joinpath(*relative.parts)
-    if source.is_symlink():
-        raise ValueError(f"source must not be a symlink: {value}")
+    current = root
+    for part in relative.parts:
+        current = current / part
+        try:
+            current_stat = current.lstat()
+        except FileNotFoundError:
+            raise ValueError(f"source must be a directory below registry root: {value}") from None
+        if stat.S_ISLNK(current_stat.st_mode):
+            if current == source:
+                raise ValueError(f"source must not be a symlink: {value}")
+            raise ValueError(f"source must not traverse a symlink: {value}")
     if not source.is_dir():
         raise ValueError(f"source must be a directory below registry root: {value}")
-    if root not in source.resolve().parents:
-        raise ValueError(f"source must be a directory below registry root: {value}")
     return source
+
+
+def _tracked_source_files(
+    root: Path, expected_revision: str, source: Path
+) -> tuple[PurePosixPath, ...]:
+    source_relative = PurePosixPath(source.relative_to(root).as_posix())
+    completed = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "ls-tree",
+            "-r",
+            "-z",
+            "--name-only",
+            expected_revision,
+            "--",
+            source_relative.as_posix(),
+        ],
+        check=False,
+        capture_output=True,
+    )
+    if completed.returncode != 0:
+        raise ValueError(f"registry revision cannot inventory declared source: {source_relative}")
+    return tuple(
+        PurePosixPath(path.decode("utf-8")).relative_to(source_relative)
+        for path in completed.stdout.split(b"\0")
+        if path
+    )
 
 
 def _declared_target_directory(services_root: Path, value: Any) -> tuple[Path, PurePosixPath]:
@@ -194,20 +234,31 @@ def _nonnegative_integer(value: Any, name: str) -> int:
 
 def _preflight_source_tree(
     source: Path,
+    tracked_files: tuple[PurePosixPath, ...],
 ) -> tuple[tuple[PurePosixPath, ...], tuple[PurePosixPath, ...]]:
     files: list[PurePosixPath] = []
     directories: list[PurePosixPath] = [PurePosixPath(".")]
+    expected_files = set(tracked_files)
+    expected_directories = {PurePosixPath(".")}
+    for file_path in tracked_files:
+        expected_directories.update(file_path.parents)
     for path in sorted(source.rglob("*")):
         relative = PurePosixPath(path.relative_to(source).as_posix())
         path_stat = path.lstat()
         if stat.S_ISLNK(path_stat.st_mode):
             raise ValueError(f"source tree contains a symlink: {relative}")
         if stat.S_ISDIR(path_stat.st_mode):
+            if relative not in expected_directories:
+                raise ValueError("source tree must match tracked registry content")
             directories.append(relative)
         elif stat.S_ISREG(path_stat.st_mode):
+            if relative not in expected_files:
+                raise ValueError("source tree must match tracked registry content")
             files.append(relative)
         else:
             raise ValueError(f"source tree contains an unsupported file type: {relative}")
+    if set(files) != expected_files or set(directories) != expected_directories:
+        raise ValueError("source tree must match tracked registry content")
     return tuple(files), tuple(directories)
 
 
