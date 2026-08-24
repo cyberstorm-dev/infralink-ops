@@ -1,10 +1,15 @@
 import os
 import stat
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
-from infralink_ops.artifact_target_install import ArtifactTargetError, install_artifact_body
+from infralink_ops.artifact_target_install import (
+    ArtifactTargetDurabilityUncertainError,
+    ArtifactTargetError,
+    install_artifact_body,
+)
 
 
 def test_installs_bytes_atomically_and_is_idempotent(tmp_path: Path) -> None:
@@ -54,3 +59,16 @@ def test_rejects_parent_traversal_without_writing_outside_target(tmp_path: Path)
         install_artifact_body(target, b"new\n", mode=0o640, uid=os.geteuid(), gid=os.getegid())
 
     assert not (tmp_path / "outside.yml").exists()
+
+
+def test_reports_durability_uncertainty_after_target_becomes_visible(tmp_path: Path) -> None:
+    target = tmp_path / "mounted" / "config.yml"
+    target.parent.mkdir()
+
+    with patch(
+        "infralink_ops.artifact_target_install.os.fsync", side_effect=[None, OSError("full")]
+    ):
+        with pytest.raises(ArtifactTargetDurabilityUncertainError, match="durability uncertain"):
+            install_artifact_body(target, b"new\n", mode=0o640, uid=os.geteuid(), gid=os.getegid())
+
+    assert target.read_bytes() == b"new\n"

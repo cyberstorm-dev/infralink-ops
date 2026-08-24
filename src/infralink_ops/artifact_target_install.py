@@ -13,6 +13,10 @@ class ArtifactTargetError(RuntimeError):
     """A target cannot be safely replaced."""
 
 
+class ArtifactTargetDurabilityUncertainError(ArtifactTargetError):
+    """The target was replaced but its parent directory was not durably synced."""
+
+
 @dataclass(frozen=True)
 class ArtifactTargetResult:
     changed: bool
@@ -78,6 +82,7 @@ def install_artifact_body(
         raise ArtifactTargetError("artifact target metadata is invalid")
     parent_fd = _open_directory(target.parent)
     temporary: str | None = None
+    committed = False
     try:
         try:
             details = os.stat(target.name, dir_fd=parent_fd, follow_symlinks=False)
@@ -117,11 +122,16 @@ def install_artifact_body(
             os.close(descriptor)
         os.replace(temporary, target.name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
         temporary = None
+        committed = True
         os.fsync(parent_fd)
         return ArtifactTargetResult(changed=True)
     except ArtifactTargetError:
         raise
     except OSError as error:
+        if committed:
+            raise ArtifactTargetDurabilityUncertainError(
+                "artifact target durability uncertain"
+            ) from error
         raise ArtifactTargetError("artifact target installation failed") from error
     finally:
         if temporary is not None:
