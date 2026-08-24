@@ -1,6 +1,7 @@
 """Operational runtime for direct Infralink registry projections."""
 
 from infralink_ops.artifact_target_install import (
+    ArtifactTargetDurabilityUncertainError,
     ArtifactTargetError,
     ArtifactTargetResult,
     install_artifact_body,
@@ -20,6 +21,7 @@ from infralink_ops.observation import project_registry_observation
 
 __all__ = [
     "ConfigTreeResult",
+    "ArtifactTargetDurabilityUncertainError",
     "ArtifactTargetError",
     "ArtifactTargetResult",
     "DeclaredFileDestinationError",
