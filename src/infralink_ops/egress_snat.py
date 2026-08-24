@@ -109,20 +109,22 @@ def _remove_chain() -> None:
 
 def _parse_owned_rule(tokens: tuple[str, ...]) -> EgressSnatRule:
     if (
-        len(tokens) != 12
+        len(tokens) != 14
         or tokens[:3] != ("-A", _CHAIN, "-s")
         or tokens[4] != "-p"
-        or tokens[6:8] != ("--dport", tokens[7])
-        or tokens[8:11] != ("-j", "SNAT", "--to-source")
+        or tokens[6] != "-m"
+        or tokens[7] != tokens[5]
+        or tokens[8] != "--dport"
+        or tokens[10:13] != ("-j", "SNAT", "--to-source")
     ):
         raise EgressSnatError("cannot inspect egress SNAT chain")
     try:
-        port = int(tokens[7])
+        port = int(tokens[9])
     except ValueError:
         raise EgressSnatError("cannot inspect egress SNAT chain") from None
-    if str(port) != tokens[7]:
+    if str(port) != tokens[9]:
         raise EgressSnatError("cannot inspect egress SNAT chain")
-    return _validate_rule(EgressSnatRule(tokens[3], tokens[5], (port,), tokens[11]))
+    return _validate_rule(EgressSnatRule(tokens[3], tokens[5], (port,), tokens[13]))
 
 
 def _snapshot() -> _Snapshot:
@@ -172,6 +174,8 @@ def _render(rules: tuple[EgressSnatRule, ...]) -> bytes:
                         "-s",
                         rule.source_cidr,
                         "-p",
+                        rule.protocol,
+                        "-m",
                         rule.protocol,
                         "--dport",
                         str(port),

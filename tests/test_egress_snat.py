@@ -45,9 +45,9 @@ def test_reconcile_installs_one_owned_chain_before_docker(monkeypatch: pytest.Mo
     assert restore_bodies == [
         b"*nat\n"
         b"-F INFRALINK_EGRESS_SNAT\n"
-        b"-A INFRALINK_EGRESS_SNAT -s 172.21.0.0/16 -p tcp --dport 25 -j SNAT "
+        b"-A INFRALINK_EGRESS_SNAT -s 172.21.0.0/16 -p tcp -m tcp --dport 25 -j SNAT "
         b"--to-source 5.161.26.199\n"
-        b"-A INFRALINK_EGRESS_SNAT -s 172.21.0.0/16 -p tcp --dport 587 -j SNAT "
+        b"-A INFRALINK_EGRESS_SNAT -s 172.21.0.0/16 -p tcp -m tcp --dport 587 -j SNAT "
         b"--to-source 5.161.26.199\n"
         b"COMMIT\n"
     ]
@@ -89,7 +89,7 @@ def test_failed_new_restore_reinstates_prior_owned_chain(monkeypatch: pytest.Mon
                 {
                     "returncode": 0,
                     "stdout": "-N INFRALINK_EGRESS_SNAT\n"
-                    "-A INFRALINK_EGRESS_SNAT -s 172.21.0.0/16 -p tcp --dport 25 "
+                    "-A INFRALINK_EGRESS_SNAT -s 172.21.0.0/16 -p tcp -m tcp --dport 25 "
                     "-j SNAT --to-source 5.161.17.242\n",
                 },
             )()
@@ -197,6 +197,8 @@ def test_unknown_existing_chain_rule_fails_before_mutation(
             )()
         if argv == ["/usr/sbin/iptables", "-t", "nat", "-S", "POSTROUTING"]:
             return type("Result", (), {"returncode": 0, "stdout": "-N POSTROUTING\n"})()
+        if argv[:5] == ["/usr/sbin/iptables", "-t", "nat", "-D", "POSTROUTING"]:
+            return type("Result", (), {"returncode": 1})()
         return type("Result", (), {"returncode": 0, "stdout": ""})()
 
     monkeypatch.setattr(module.subprocess, "run", run)
@@ -208,6 +210,44 @@ def test_unknown_existing_chain_rule_fails_before_mutation(
         ["/usr/sbin/iptables", "-t", "nat", "-S", "INFRALINK_EGRESS_SNAT"],
         ["/usr/sbin/iptables", "-t", "nat", "-S", "POSTROUTING"],
     ]
+
+
+@pytest.mark.parametrize("protocol", ("tcp", "udp"))
+def test_reconcile_accepts_iptables_canonical_owned_rule(
+    monkeypatch: pytest.MonkeyPatch, protocol: str
+) -> None:
+    import infralink_ops.egress_snat as module
+
+    def run(argv: list[str], **_kwargs: object) -> object:
+        if argv == ["/usr/sbin/iptables", "-t", "nat", "-S", "INFRALINK_EGRESS_SNAT"]:
+            return type(
+                "Result",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": "-N INFRALINK_EGRESS_SNAT\n"
+                    f"-A INFRALINK_EGRESS_SNAT -s 172.21.0.0/16 -p {protocol} -m {protocol} "
+                    "--dport 25 -j SNAT --to-source 5.161.17.242\n",
+                },
+            )()
+        if argv == ["/usr/sbin/iptables", "-t", "nat", "-S", "POSTROUTING"]:
+            return type("Result", (), {"returncode": 0, "stdout": "-N POSTROUTING\n"})()
+        if argv[:5] == ["/usr/sbin/iptables", "-t", "nat", "-D", "POSTROUTING"]:
+            return type("Result", (), {"returncode": 1})()
+        return type("Result", (), {"returncode": 0, "stdout": ""})()
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+
+    reconcile_egress_snat(
+        (
+            EgressSnatRule(
+                source_cidr="172.21.0.0/16",
+                protocol=protocol,
+                ports=(25,),
+                to_source="5.161.26.199",
+            ),
+        )
+    )
 
 
 @pytest.mark.parametrize(
