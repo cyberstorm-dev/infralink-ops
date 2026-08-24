@@ -26,6 +26,25 @@ def test_rejects_symlinked_file(tmp_path: Path) -> None:
         read_stable_regular_file(source)
 
 
+def test_rejects_symlinked_parent_without_reading_outside(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "config.yml").write_bytes(b"retain\n")
+    source_root = tmp_path / "registry"
+    source_root.mkdir()
+    (source_root / "operations").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(StableRegularFileError, match="path is unsafe"):
+        read_stable_regular_file(source_root / "operations" / "config.yml")
+
+
+def test_rejects_parent_traversal(tmp_path: Path) -> None:
+    source = tmp_path / "registry" / ".." / "outside.yml"
+
+    with pytest.raises(StableRegularFileError, match="path is unsafe"):
+        read_stable_regular_file(source)
+
+
 def test_rejects_file_changed_while_reading(tmp_path: Path) -> None:
     source = tmp_path / "registry" / "config.yml"
     source.parent.mkdir()
