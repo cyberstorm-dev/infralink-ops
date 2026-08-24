@@ -52,6 +52,7 @@ def test_render_firewall_policy_emits_declared_tailnet_ingress() -> None:
         b"    type filter hook input priority filter; policy drop;\n"
         b'    iifname "lo" accept\n'
         b"    ct state established,related accept\n"
+        b"    udp dport 41641 accept\n"
         b'    iifname "tailscale0" ip saddr 100.64.0.0/10 tcp dport 22 accept\n'
         b'    iifname "tailscale0" ip saddr 100.64.0.0/10 tcp dport 8443 accept\n'
         b"  }\n"
@@ -62,7 +63,7 @@ def test_render_firewall_policy_emits_declared_tailnet_ingress() -> None:
         b"  }\n"
         b"}\n"
     )
-    assert b"udp dport 41641 accept" not in rendered
+    assert b"udp dport 41641 accept" in rendered
     assert b' iifname "tailscale0" tcp dport 22 accept\n' not in rendered
     assert b' iifname "docker0" udp dport 53 accept' not in rendered
     assert b' iifname "docker0" accept\n' not in rendered

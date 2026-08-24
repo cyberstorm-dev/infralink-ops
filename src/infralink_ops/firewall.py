@@ -235,6 +235,9 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
             "    type filter hook input priority filter; policy drop;",
             '    iifname "lo" accept',
             "    ct state established,related accept",
+            # Tailscale's WireGuard listener is a host-runtime prerequisite,
+            # not an application ingress declaration.
+            "    udp dport 41641 accept",
             *bridge_rules,
             *ssh_rules,
             *ingress_rules,
