@@ -214,13 +214,7 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
     ]
     container_egress_rules = list(dict.fromkeys(container_egress_rules))
     resolver_protocols = tuple(
-        sorted(
-            {
-                rule.protocol
-                for rule in firewall.container_egress
-                if 53 in rule.ports
-            }
-        )
+        sorted({rule.protocol for rule in firewall.container_egress if 53 in rule.ports})
     )
     resolver_rules = [
         f'    iifname "{interface}" {protocol} dport 53 accept'
