@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -63,6 +64,24 @@ def test_apply_materializes_declared_runtime_directory_with_exact_mode(tmp_path:
     assert destination.stat().st_gid == os.getgid()
 
 
+def test_apply_materializes_declared_service_runtime_directory(tmp_path: Path) -> None:
+    from infralink_ops.controller_runtime_directories import main
+
+    deployment = _deployment(tmp_path / "deployment.yml", [_directory("/opt/services/redis/data")])
+    host_root = tmp_path / "host"
+    host_root.mkdir()
+
+    payload, status = main(
+        ["apply", "--deployment", str(deployment), "--host-root", str(host_root)]
+    )
+
+    destination = host_root / "opt/services/redis/data"
+    assert status == 0
+    assert payload["result"]["directories"][0]["path"] == "/opt/services/redis/data"
+    assert destination.is_dir()
+    assert stat.S_IMODE(destination.stat().st_mode) == 0o750
+
+
 def test_rejects_runtime_directory_outside_allowed_host_roots(tmp_path: Path) -> None:
     from infralink_ops.controller_runtime_directories import main
 
@@ -74,6 +93,27 @@ def test_rejects_runtime_directory_outside_allowed_host_roots(tmp_path: Path) ->
 
     assert status == 78
     assert payload["error"] == {"code": "runtime_directory_path_not_allowed"}
+
+
+@pytest.mark.parametrize("path", ("/opt/services/.", "/opt/services/..", "/opt/services/redis/.."))
+def test_rejects_noncanonical_service_runtime_directory_without_writing(
+    tmp_path: Path, path: str
+) -> None:
+    from infralink_ops.controller_runtime_directories import main
+
+    deployment = _deployment(tmp_path / "deployment.yml", [_directory(path)])
+    host_root = tmp_path / "host"
+    services_root = host_root / "opt/services"
+    services_root.mkdir(parents=True)
+    original_mode = stat.S_IMODE(services_root.stat().st_mode)
+
+    payload, status = main(
+        ["apply", "--deployment", str(deployment), "--host-root", str(host_root)]
+    )
+
+    assert status == 78
+    assert payload["error"] == {"code": "runtime_directory_path_not_allowed"}
+    assert stat.S_IMODE(services_root.stat().st_mode) == original_mode
 
 
 def test_rejects_symlinked_runtime_directory_ancestor(tmp_path: Path) -> None:

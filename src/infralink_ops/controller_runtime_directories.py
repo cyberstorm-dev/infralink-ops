@@ -13,7 +13,7 @@ from typing import Any
 import yaml
 
 SCHEMA_VERSION = "infralink.ops.runtime-directories/v1"
-ALLOWED_ROOTS = ("/var/lib/", "/var/log/", "/run/")
+ALLOWED_ROOTS = ("/opt/services/", "/var/lib/", "/var/log/", "/run/")
 
 
 class RuntimeDirectoryError(ValueError):
@@ -78,7 +78,7 @@ def _directory(value: object) -> RuntimeDirectory:
         not isinstance(path, str)
         or not any(path.startswith(root) for root in ALLOWED_ROOTS)
         or path.endswith("/")
-        or "/../" in f"/{path.removeprefix('/')}"
+        or any(component in {".", ".."} for component in path.split("/"))
         or path in {root.removesuffix("/") for root in ALLOWED_ROOTS}
     ):
         raise RuntimeDirectoryError("runtime_directory_path_not_allowed")
