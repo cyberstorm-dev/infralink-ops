@@ -6,6 +6,11 @@ from infralink_ops.artifact_target_install import (
     ArtifactTargetResult,
     install_artifact_body,
 )
+from infralink_ops.bounded_process import (
+    BoundedProcessFailure,
+    BoundedProcessResult,
+    run_bounded_process,
+)
 from infralink_ops.config_trees import (
     ConfigTreeResult,
     materialize_config_tree,
@@ -25,6 +30,8 @@ __all__ = [
     "ArtifactTargetDurabilityUncertainError",
     "ArtifactTargetError",
     "ArtifactTargetResult",
+    "BoundedProcessFailure",
+    "BoundedProcessResult",
     "DeclaredFileDestinationError",
     "classify_declared_file_destination",
     "load_registry_dashboards",
@@ -33,6 +40,7 @@ __all__ = [
     "preflight_config_trees",
     "project_registry_observation",
     "repair_empty_declared_file_destination",
+    "run_bounded_process",
     "StableRegularFileError",
     "read_stable_regular_file",
 ]
