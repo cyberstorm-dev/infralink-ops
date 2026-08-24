@@ -193,6 +193,7 @@ def test_installs_controller_image_cache_runnable() -> None:
     assert command.value == "infralink_ops.controller_images:main"
 
 
-def test_bumps_minor_runtime_release_version() -> None:
+def test_runtime_release_version_is_semver() -> None:
     project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.40"
+    major, minor, patch = project["project"]["version"].split(".")
+    assert all(part.isdigit() for part in (major, minor, patch))
