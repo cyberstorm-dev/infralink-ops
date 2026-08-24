@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -240,6 +241,108 @@ def test_ignores_dirty_child_submodules_when_parent_checkout_is_clean(tmp_path: 
     )
 
     assert result.changed_paths == ("irc/static/modules.conf",)
+
+
+def _pinned_submodule_source(tmp_path: Path) -> tuple[Path, str, Path, str]:
+    root, _ = registry_checkout(tmp_path)
+    child = tmp_path / "child"
+    child.mkdir()
+    subprocess.run(["git", "init", "-q", str(child)], check=True)
+    subprocess.run(
+        ["git", "-C", str(child), "config", "user.email", "test@example.invalid"], check=True
+    )
+    subprocess.run(["git", "-C", str(child), "config", "user.name", "Test"], check=True)
+    source = child / "inspircd" / "4" / "conf"
+    source.mkdir(parents=True)
+    (source / "modules.conf").write_text("module = core\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(child), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(child), "commit", "-qm", "initial"], check=True)
+    pinned = subprocess.check_output(
+        ["git", "-C", str(child), "rev-parse", "HEAD"], text=True
+    ).strip()
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            str(child),
+            "shared/relayos-irc-config",
+        ],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(root), "commit", "-am", "add config source"], check=True)
+    revision = subprocess.check_output(
+        ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
+    ).strip()
+    return root, revision, root / "shared" / "relayos-irc-config", pinned
+
+
+def test_materializes_source_from_clean_submodule_at_parent_pinned_gitlink(tmp_path: Path) -> None:
+    root, revision, _, _ = _pinned_submodule_source(tmp_path)
+
+    result = materialize_config_tree(
+        root,
+        expected_revision=revision,
+        declaration={**DECLARATION, "source": "shared/relayos-irc-config/inspircd/4/conf"},
+        services_root=tmp_path / "services",
+    )
+
+    assert result.changed_paths == ("irc/static/modules.conf",)
+
+
+def test_rejects_uninitialized_pinned_submodule_before_target_mutation(tmp_path: Path) -> None:
+    root, revision, child, _ = _pinned_submodule_source(tmp_path)
+    services_root = tmp_path / "services"
+    shutil.rmtree(child)
+
+    with pytest.raises(ValueError, match="pinned submodule checkout is unavailable"):
+        materialize_config_tree(
+            root,
+            expected_revision=revision,
+            declaration={
+                **DECLARATION,
+                "source": "shared/relayos-irc-config/inspircd/4/conf",
+            },
+            services_root=services_root,
+        )
+
+    assert not services_root.exists()
+
+
+def test_rejects_dirty_or_mismatched_pinned_submodule_source(tmp_path: Path) -> None:
+    root, revision, child, _ = _pinned_submodule_source(tmp_path)
+    source = child / "inspircd" / "4" / "conf" / "modules.conf"
+    declaration = {**DECLARATION, "source": "shared/relayos-irc-config/inspircd/4/conf"}
+    source.write_text("dirty\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="pinned submodule checkout must be clean"):
+        materialize_config_tree(
+            root,
+            expected_revision=revision,
+            declaration=declaration,
+            services_root=tmp_path / "services",
+        )
+
+    source.write_text("module = advanced\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(child), "config", "user.email", "test@example.invalid"], check=True
+    )
+    subprocess.run(["git", "-C", str(child), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(child), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(child), "commit", "-qm", "advance child"], check=True)
+
+    with pytest.raises(ValueError, match="pinned submodule revision mismatch"):
+        materialize_config_tree(
+            root,
+            expected_revision=revision,
+            declaration=declaration,
+            services_root=tmp_path / "services",
+        )
 
 
 def test_sync_updates_nested_files_removes_stale_entries_and_is_idempotent(tmp_path: Path) -> None:

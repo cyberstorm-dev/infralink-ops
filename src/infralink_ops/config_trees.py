@@ -38,7 +38,7 @@ def preflight_config_trees(
     for declaration in declarations:
         if not isinstance(declaration, Mapping):
             raise ValueError("declared config tree must be a mapping")
-        source = _declared_source_directory(root, declaration.get("source"))
+        source = _declared_source_directory(root, expected_revision, declaration.get("source"))
         target, relative_target = _declared_target_directory(
             services_root, declaration.get("target")
         )
@@ -68,7 +68,7 @@ def materialize_config_tree(
     """
 
     root = _verified_registry_root(registry_root, expected_revision)
-    source = _declared_source_directory(root, declaration.get("source"))
+    source = _declared_source_directory(root, expected_revision, declaration.get("source"))
     target, relative_target = _declared_target_directory(services_root, declaration.get("target"))
     metadata = _metadata(declaration)
     source_files, source_directories = _preflight_source_tree(
@@ -153,7 +153,7 @@ def _git_status(root: Path) -> str:
     return completed.stdout
 
 
-def _declared_source_directory(root: Path, value: Any) -> Path:
+def _declared_source_directory(root: Path, expected_revision: str, value: Any) -> Path:
     if not isinstance(value, str) or not value:
         raise ValueError("source must be a non-empty relative path")
     relative = PurePosixPath(value)
@@ -166,6 +166,7 @@ def _declared_source_directory(root: Path, value: Any) -> Path:
         try:
             current_stat = current.lstat()
         except FileNotFoundError:
+            _pinned_submodule_for_source(root, expected_revision, relative)
             raise ValueError(f"source must be a directory below registry root: {value}") from None
         if stat.S_ISLNK(current_stat.st_mode):
             if current == source:
@@ -180,19 +181,65 @@ def _tracked_source_files(
     root: Path, expected_revision: str, source: Path
 ) -> tuple[PurePosixPath, ...]:
     source_relative = PurePosixPath(source.relative_to(root).as_posix())
+    submodule = _pinned_submodule_for_source(root, expected_revision, source_relative)
+    if submodule is not None:
+        submodule_root, pinned_revision, relative_source = submodule
+        return _tracked_tree_files(submodule_root, pinned_revision, relative_source)
+    return _tracked_tree_files(root, expected_revision, source_relative)
+
+
+def _pinned_submodule_for_source(
+    root: Path, expected_revision: str, source: PurePosixPath
+) -> tuple[Path, str, PurePosixPath] | None:
+    for count in range(len(source.parts), 0, -1):
+        candidate = PurePosixPath(*source.parts[:count])
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "ls-tree",
+                "-z",
+                expected_revision,
+                "--",
+                candidate.as_posix(),
+            ],
+            check=False,
+            capture_output=True,
+        )
+        if completed.returncode != 0:
+            raise ValueError("registry revision cannot inventory declared source")
+        entry = completed.stdout.rstrip(b"\0")
+        if not entry:
+            continue
+        metadata, separator, path = entry.partition(b"\t")
+        fields = metadata.split()
+        if separator != b"\t" or path.decode("utf-8") != candidate.as_posix():
+            raise ValueError("registry revision cannot inventory declared source")
+        if len(fields) != 3 or fields[0] != b"160000" or fields[1] != b"commit":
+            continue
+        revision = fields[2].decode("ascii")
+        submodule = root / Path(*candidate.parts)
+        if not submodule.is_dir() or submodule.is_symlink():
+            raise ValueError("pinned submodule checkout is unavailable")
+        if _git_toplevel(submodule) != submodule.resolve():
+            raise ValueError("pinned submodule checkout is unavailable")
+        if _git_revision(submodule) != revision:
+            raise ValueError("pinned submodule revision mismatch")
+        if _git_status_including_submodules(submodule):
+            raise ValueError("pinned submodule checkout must be clean")
+        return submodule, revision, PurePosixPath(*source.parts[count:])
+    return None
+
+
+def _tracked_tree_files(
+    checkout: Path, revision: str, source_relative: PurePosixPath
+) -> tuple[PurePosixPath, ...]:
+    command = ["git", "-C", str(checkout), "ls-tree", "-r", "-z", "--name-only", revision]
+    if source_relative.parts:
+        command.extend(("--", source_relative.as_posix()))
     completed = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(root),
-            "ls-tree",
-            "-r",
-            "-z",
-            "--name-only",
-            expected_revision,
-            "--",
-            source_relative.as_posix(),
-        ],
+        command,
         check=False,
         capture_output=True,
     )
@@ -203,6 +250,18 @@ def _tracked_source_files(
         for path in completed.stdout.split(b"\0")
         if path
     )
+
+
+def _git_status_including_submodules(root: Path) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise ValueError(f"registry checkout has no readable Git status: {root}")
+    return completed.stdout
 
 
 def _declared_target_directory(services_root: Path, value: Any) -> tuple[Path, PurePosixPath]:
