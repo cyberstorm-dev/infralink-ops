@@ -5,6 +5,7 @@ import os
 import signal
 import stat
 import subprocess
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -169,7 +170,7 @@ def test_spawn_is_closed_and_exact(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _write_executable(path: Path, body: str) -> str:
-    path.write_text("#!/usr/bin/python3\n" + body, encoding="ascii")
+    path.write_text(f"#!{sys.executable}\n" + body, encoding="ascii")
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
     return str(path)
 
