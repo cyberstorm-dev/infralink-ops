@@ -195,4 +195,4 @@ def test_installs_controller_image_cache_runnable() -> None:
 
 def test_bumps_minor_runtime_release_version() -> None:
     project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.35"
+    assert project["project"]["version"] == "0.2.36"
