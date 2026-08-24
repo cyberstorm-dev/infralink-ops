@@ -78,6 +78,98 @@ def test_load_firewall_policy_accepts_a_host_without_firewall_declaration(tmp_pa
     assert load_firewall_policy(deployment) is None
 
 
+def test_render_firewall_policy_emits_declared_bridge_container_egress() -> None:
+    from infralink_ops.firewall import render_firewall_policy
+
+    firewall = FirewallPolicy.model_validate(
+        {
+            "backend": "nftables",
+            "mode": "default-deny",
+            "management_ssh": {
+                "port": 22,
+                "interface": "tailscale0",
+                "sources": ["100.64.0.0/10"],
+            },
+            "container_egress": [
+                {
+                    "service": "worker",
+                    "protocol": "udp",
+                    "ports": [53],
+                    "destinations": ["0.0.0.0/0"],
+                },
+                {
+                    "service": "worker",
+                    "protocol": "tcp",
+                    "ports": [443],
+                    "destinations": ["0.0.0.0/0"],
+                },
+            ],
+        }
+    )
+    rendered = render_firewall_policy(
+        firewall=firewall,
+        compose=b"services:\n  worker:\n    image: example/worker\n",
+    )
+
+    assert b'iifname "docker0" ip daddr 0.0.0.0/0 udp dport 53 accept' in rendered
+    assert b'iifname "br-*" ip daddr 0.0.0.0/0 tcp dport 443 accept' in rendered
+    assert b'iifname "docker0" accept' not in rendered
+
+
+def test_render_firewall_policy_emits_all_interface_management_ssh() -> None:
+    from infralink_ops.firewall import render_firewall_policy
+
+    firewall = FirewallPolicy.model_validate(
+        {
+            "backend": "nftables",
+            "mode": "default-deny",
+            "management_ssh": {
+                "port": 22,
+                "interface": "any",
+                "sources": ["0.0.0.0/0", "::/0"],
+            },
+        }
+    )
+    rendered = render_firewall_policy(
+        firewall=firewall,
+        compose=b"services:\n  worker:\n    image: example/worker\n",
+    )
+
+    assert b"ip saddr 0.0.0.0/0 tcp dport 22 accept" in rendered
+    assert b"ip6 saddr ::/0 tcp dport 22 accept" in rendered
+    assert b'iifname "any"' not in rendered
+
+
+def test_render_firewall_policy_rejects_host_networked_container_egress() -> None:
+    from infralink_ops.firewall import FirewallError, render_firewall_policy
+
+    firewall = FirewallPolicy.model_validate(
+        {
+            "backend": "nftables",
+            "mode": "default-deny",
+            "management_ssh": {
+                "port": 22,
+                "interface": "tailscale0",
+                "sources": ["100.64.0.0/10"],
+            },
+            "container_egress": [
+                {
+                    "service": "worker",
+                    "protocol": "tcp",
+                    "ports": [443],
+                    "destinations": ["0.0.0.0/0"],
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(FirewallError, match="container_egress_service_not_bridge_networked"):
+        render_firewall_policy(
+            firewall=firewall,
+            compose=b"services:\n  worker:\n    image: example/worker\n    network_mode: host\n",
+        )
+
+
 def test_verify_firewall_policy_accepts_matching_runtime_rules() -> None:
     from infralink_ops.firewall import render_firewall_policy, verify_firewall_policy
 
