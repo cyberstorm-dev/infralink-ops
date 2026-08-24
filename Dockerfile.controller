@@ -49,6 +49,7 @@ RUN python -m pip install --disable-pip-version-check --no-cache-dir . \
     && command -v infralink-controller-doctor \
     && command -v infralink-controller-firewall \
     && command -v infralink-controller-image-resolution \
-    && command -v infralink-controller-reference
+    && command -v infralink-controller-reference \
+    && command -v infralink-controller-template-dependencies
 
 CMD ["infralink-ops", "--help"]
