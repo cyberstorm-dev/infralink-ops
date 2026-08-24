@@ -1,0 +1,176 @@
+"""Controller-owned iptables SNAT chain reconciliation."""
+
+from __future__ import annotations
+
+import ipaddress
+import shlex
+import subprocess
+from dataclasses import dataclass
+
+_IPTABLES = "/usr/sbin/iptables"
+_IPTABLES_RESTORE = "/usr/sbin/iptables-restore"
+_CHAIN = "INFRALINK_EGRESS_SNAT"
+_MAX_JUMPS = 128
+
+
+class EgressSnatError(RuntimeError):
+    """The controller-owned egress SNAT chain could not be reconciled."""
+
+
+@dataclass(frozen=True, slots=True)
+class EgressSnatRule:
+    """One source-restricted TCP or UDP SNAT rule."""
+
+    source_cidr: str
+    protocol: str
+    ports: tuple[int, ...]
+    to_source: str
+
+
+@dataclass(frozen=True, slots=True)
+class _Snapshot:
+    chain_rules: tuple[tuple[str, ...], ...]
+    jump_positions: tuple[int, ...]
+
+
+def _validate_rule(rule: EgressSnatRule) -> EgressSnatRule:
+    if type(rule) is not EgressSnatRule:
+        raise EgressSnatError("egress SNAT rule is invalid")
+    if type(rule.source_cidr) is not str or type(rule.to_source) is not str:
+        raise EgressSnatError("egress SNAT rule is invalid")
+    try:
+        ipaddress.ip_network(rule.source_cidr, strict=True)
+        ipaddress.ip_address(rule.to_source)
+    except ValueError:
+        raise EgressSnatError("egress SNAT rule is invalid") from None
+    if rule.protocol not in {"tcp", "udp"} or type(rule.ports) is not tuple:
+        raise EgressSnatError("egress SNAT rule is invalid")
+    if not rule.ports or len(rule.ports) > 64 or len(set(rule.ports)) != len(rule.ports):
+        raise EgressSnatError("egress SNAT rule is invalid")
+    if any(type(port) is not int or not 1 <= port <= 65535 for port in rule.ports):
+        raise EgressSnatError("egress SNAT rule is invalid")
+    return rule
+
+
+def _validate_rules(rules: tuple[EgressSnatRule, ...]) -> tuple[EgressSnatRule, ...]:
+    if type(rules) is not tuple or len(rules) > 128:
+        raise EgressSnatError("egress SNAT rules are invalid")
+    return tuple(_validate_rule(rule) for rule in rules)
+
+
+def _run(*arguments: str) -> int:
+    return subprocess.run([_IPTABLES, "-t", "nat", *arguments], check=False).returncode
+
+
+def _rules(chain: str) -> tuple[tuple[str, ...], ...]:
+    result = subprocess.run(
+        [_IPTABLES, "-t", "nat", "-S", chain],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    if result.returncode == 1:
+        return ()
+    if result.returncode != 0 or type(result.stdout) is not str:
+        raise EgressSnatError("cannot inspect egress SNAT chain")
+    try:
+        return tuple(tuple(shlex.split(line)) for line in result.stdout.splitlines())
+    except ValueError:
+        raise EgressSnatError("cannot inspect egress SNAT chain") from None
+
+
+def _remove_jumps() -> None:
+    jump = ("-j", _CHAIN)
+    for _ in range(_MAX_JUMPS):
+        if _run("-D", "POSTROUTING", *jump) != 0:
+            return
+    raise EgressSnatError("too many controller-owned egress SNAT jumps")
+
+
+def _remove_chain() -> None:
+    _remove_jumps()
+    if _run("-F", _CHAIN) not in {0, 1} or _run("-X", _CHAIN) not in {0, 1}:
+        raise EgressSnatError("cannot remove controller-owned egress SNAT chain")
+
+
+def _snapshot() -> _Snapshot:
+    chain_rules = tuple(rule for rule in _rules(_CHAIN) if rule[:2] == ("-A", _CHAIN))
+    postrouting = tuple(rule for rule in _rules("POSTROUTING") if rule[:2] == ("-A", "POSTROUTING"))
+    jump = ("-A", "POSTROUTING", "-j", _CHAIN)
+    return _Snapshot(
+        chain_rules=chain_rules,
+        jump_positions=tuple(
+            index for index, rule in enumerate(postrouting, start=1) if rule == jump
+        ),
+    )
+
+
+def _restore(snapshot: _Snapshot) -> None:
+    _remove_chain()
+    if not snapshot.chain_rules:
+        return
+    if _run("-N", _CHAIN) != 0:
+        raise EgressSnatError("cannot restore egress SNAT chain")
+    body = "\n".join(
+        ("*nat", f"-F {_CHAIN}", *(" ".join(rule) for rule in snapshot.chain_rules), "COMMIT", "")
+    ).encode("ascii")
+    if subprocess.run([_IPTABLES_RESTORE, "--noflush"], input=body, check=False).returncode != 0:
+        raise EgressSnatError("cannot restore egress SNAT chain")
+    for position in reversed(snapshot.jump_positions):
+        if _run("-I", "POSTROUTING", str(position), "-j", _CHAIN) != 0:
+            raise EgressSnatError("cannot restore egress SNAT chain")
+
+
+def _render(rules: tuple[EgressSnatRule, ...]) -> bytes:
+    lines = ["*nat", f"-F {_CHAIN}"]
+    for rule in rules:
+        for port in rule.ports:
+            lines.append(
+                " ".join(
+                    (
+                        "-A",
+                        _CHAIN,
+                        "-s",
+                        rule.source_cidr,
+                        "-p",
+                        rule.protocol,
+                        "--dport",
+                        str(port),
+                        "-j",
+                        "SNAT",
+                        "--to-source",
+                        rule.to_source,
+                    )
+                )
+            )
+    lines.append("COMMIT")
+    return ("\n".join(lines) + "\n").encode("ascii")
+
+
+def reconcile_egress_snat(rules: tuple[EgressSnatRule, ...]) -> None:
+    """Atomically replace the controller-owned SNAT chain before Docker NAT rules."""
+    validated = _validate_rules(rules)
+    snapshot = _snapshot()
+    try:
+        if not validated:
+            _remove_chain()
+            return
+        if _run("-N", _CHAIN) not in {0, 1}:
+            raise EgressSnatError("cannot create egress SNAT chain")
+        if (
+            subprocess.run(
+                [_IPTABLES_RESTORE, "--noflush"], input=_render(validated), check=False
+            ).returncode
+            != 0
+        ):
+            raise EgressSnatError("cannot apply egress SNAT chain")
+        _remove_jumps()
+        if _run("-I", "POSTROUTING", "1", "-j", _CHAIN) != 0:
+            raise EgressSnatError("cannot install egress SNAT jump")
+    except (OSError, subprocess.SubprocessError, EgressSnatError):
+        try:
+            _restore(snapshot)
+        except (OSError, subprocess.SubprocessError, EgressSnatError):
+            pass
+        raise EgressSnatError("egress SNAT reconciliation failed") from None
