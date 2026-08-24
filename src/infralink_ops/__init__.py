@@ -25,7 +25,10 @@ from infralink_ops.declared_file_destination import (
 from infralink_ops.egress_snat import (
     EgressSnatError,
     EgressSnatRule,
+    EgressSnatSnapshot,
+    capture_egress_snat,
     reconcile_egress_snat,
+    restore_egress_snat,
 )
 from infralink_ops.observation import project_registry_observation
 from infralink_ops.stable_regular_file import StableRegularFileError, read_stable_regular_file
@@ -40,6 +43,8 @@ __all__ = [
     "DeclaredFileDestinationError",
     "EgressSnatError",
     "EgressSnatRule",
+    "EgressSnatSnapshot",
+    "capture_egress_snat",
     "classify_declared_file_destination",
     "load_registry_dashboards",
     "install_artifact_body",
@@ -51,4 +56,5 @@ __all__ = [
     "StableRegularFileError",
     "read_stable_regular_file",
     "reconcile_egress_snat",
+    "restore_egress_snat",
 ]

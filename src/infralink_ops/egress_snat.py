@@ -28,7 +28,9 @@ class EgressSnatRule:
 
 
 @dataclass(frozen=True, slots=True)
-class _Snapshot:
+class EgressSnatSnapshot:
+    """Typed transient state for compensating an owned SNAT-chain operation."""
+
     chain_exists: bool
     chain_rules: tuple[EgressSnatRule, ...]
     jump_positions: tuple[int, ...]
@@ -127,7 +129,8 @@ def _parse_owned_rule(tokens: tuple[str, ...]) -> EgressSnatRule:
     return _validate_rule(EgressSnatRule(tokens[3], tokens[5], (port,), tokens[13]))
 
 
-def _snapshot() -> _Snapshot:
+def capture_egress_snat() -> EgressSnatSnapshot:
+    """Capture only canonical state owned by the controller SNAT chain."""
     chain = _rules(_CHAIN)
     postrouting = _rules("POSTROUTING")
     if postrouting is None:
@@ -139,7 +142,7 @@ def _snapshot() -> _Snapshot:
         chain_rules.append(_parse_owned_rule(rule))
     postrouting_rules = tuple(rule for rule in postrouting if rule[:2] == ("-A", "POSTROUTING"))
     jump = ("-A", "POSTROUTING", "-j", _CHAIN)
-    return _Snapshot(
+    return EgressSnatSnapshot(
         chain_exists=chain is not None,
         chain_rules=tuple(chain_rules),
         jump_positions=tuple(
@@ -148,7 +151,10 @@ def _snapshot() -> _Snapshot:
     )
 
 
-def _restore(snapshot: _Snapshot) -> None:
+def restore_egress_snat(snapshot: EgressSnatSnapshot) -> None:
+    """Restore a transient snapshot of the controller-owned SNAT chain."""
+    if type(snapshot) is not EgressSnatSnapshot:
+        raise EgressSnatError("egress SNAT snapshot is invalid")
     _remove_chain()
     if not snapshot.chain_exists:
         return
@@ -193,7 +199,7 @@ def _render(rules: tuple[EgressSnatRule, ...]) -> bytes:
 def reconcile_egress_snat(rules: tuple[EgressSnatRule, ...]) -> None:
     """Atomically replace the controller-owned SNAT chain before Docker NAT rules."""
     validated = _validate_rules(rules)
-    snapshot = _snapshot()
+    snapshot = capture_egress_snat()
     try:
         if not validated:
             _remove_chain()
@@ -212,7 +218,7 @@ def reconcile_egress_snat(rules: tuple[EgressSnatRule, ...]) -> None:
             raise EgressSnatError("cannot install egress SNAT jump")
     except (OSError, subprocess.SubprocessError, EgressSnatError):
         try:
-            _restore(snapshot)
+            restore_egress_snat(snapshot)
         except (OSError, subprocess.SubprocessError, EgressSnatError):
             pass
         raise EgressSnatError("egress SNAT reconciliation failed") from None

@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from infralink_ops.egress_snat import EgressSnatError, EgressSnatRule, reconcile_egress_snat
+from infralink_ops.egress_snat import (
+    EgressSnatError,
+    EgressSnatRule,
+    capture_egress_snat,
+    reconcile_egress_snat,
+    restore_egress_snat,
+)
 
 
 def _rule() -> EgressSnatRule:
@@ -164,6 +170,67 @@ def test_failed_new_restore_reinstates_empty_prior_owned_chain(
         reconcile_egress_snat((_rule(),))
 
     assert restore_bodies[1] == b"*nat\n-F INFRALINK_EGRESS_SNAT\nCOMMIT\n"
+    assert [
+        "/usr/sbin/iptables",
+        "-t",
+        "nat",
+        "-I",
+        "POSTROUTING",
+        "2",
+        "-j",
+        "INFRALINK_EGRESS_SNAT",
+    ] in calls
+
+
+def test_public_snapshot_restore_preserves_owned_chain_and_jump(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import infralink_ops.egress_snat as module
+
+    restore_bodies: list[bytes] = []
+    calls: list[list[str]] = []
+
+    def run(argv: list[str], **kwargs: object) -> object:
+        calls.append(argv)
+        if argv == ["/usr/sbin/iptables", "-t", "nat", "-S", "INFRALINK_EGRESS_SNAT"]:
+            return type(
+                "Result",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": "-N INFRALINK_EGRESS_SNAT\n"
+                    "-A INFRALINK_EGRESS_SNAT -s 172.21.0.0/16 -p tcp -m tcp --dport 25 "
+                    "-j SNAT --to-source 5.161.17.242\n",
+                },
+            )()
+        if argv == ["/usr/sbin/iptables", "-t", "nat", "-S", "POSTROUTING"]:
+            return type(
+                "Result",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": "-N POSTROUTING\n-A POSTROUTING -j DOCKER\n"
+                    "-A POSTROUTING -j INFRALINK_EGRESS_SNAT\n",
+                },
+            )()
+        if argv == ["/usr/sbin/iptables-restore", "--noflush"]:
+            restore_bodies.append(kwargs["input"])  # type: ignore[index]
+        if argv[:5] == ["/usr/sbin/iptables", "-t", "nat", "-D", "POSTROUTING"]:
+            return type("Result", (), {"returncode": 1})()
+        return type("Result", (), {"returncode": 0, "stdout": ""})()
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+
+    snapshot = capture_egress_snat()
+    restore_egress_snat(snapshot)
+
+    assert restore_bodies == [
+        b"*nat\n"
+        b"-F INFRALINK_EGRESS_SNAT\n"
+        b"-A INFRALINK_EGRESS_SNAT -s 172.21.0.0/16 -p tcp -m tcp --dport 25 -j SNAT "
+        b"--to-source 5.161.17.242\n"
+        b"COMMIT\n"
+    ]
     assert [
         "/usr/sbin/iptables",
         "-t",
