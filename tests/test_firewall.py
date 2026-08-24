@@ -112,6 +112,8 @@ def test_render_firewall_policy_emits_declared_bridge_container_egress() -> None
         compose=b"services:\n  worker:\n    image: example/worker\n",
     )
 
+    assert b'iifname "docker0" udp dport 53 accept' in rendered
+    assert b'iifname "br-*" udp dport 53 accept' in rendered
     assert b'iifname "docker0" ip daddr 0.0.0.0/0 udp dport 53 accept' in rendered
     assert b'iifname "br-*" ip daddr 0.0.0.0/0 tcp dport 443 accept' in rendered
     assert b'iifname "docker0" accept' not in rendered
