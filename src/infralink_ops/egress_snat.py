@@ -39,10 +39,22 @@ def _validate_rule(rule: EgressSnatRule) -> EgressSnatRule:
     if type(rule.source_cidr) is not str or type(rule.to_source) is not str:
         raise EgressSnatError("egress SNAT rule is invalid")
     try:
-        ipaddress.ip_network(rule.source_cidr, strict=True)
-        ipaddress.ip_address(rule.to_source)
+        network = ipaddress.ip_network(rule.source_cidr, strict=True)
+        address = ipaddress.ip_address(rule.to_source)
     except ValueError:
         raise EgressSnatError("egress SNAT rule is invalid") from None
+    if (
+        network.version != 4
+        or network.prefixlen == 0
+        or str(network) != rule.source_cidr
+        or address.version != 4
+        or address.is_unspecified
+        or address.is_loopback
+        or address.is_multicast
+        or address.is_link_local
+        or str(address) != rule.to_source
+    ):
+        raise EgressSnatError("egress SNAT rule is invalid")
     if rule.protocol not in {"tcp", "udp"} or type(rule.ports) is not tuple:
         raise EgressSnatError("egress SNAT rule is invalid")
     if not rule.ports or len(rule.ports) > 64 or len(set(rule.ports)) != len(rule.ports):

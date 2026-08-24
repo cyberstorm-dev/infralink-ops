@@ -136,6 +136,8 @@ def test_failed_new_restore_reinstates_prior_owned_chain(monkeypatch: pytest.Mon
         EgressSnatRule("172.21.0.0/16", "icmp", (25,), "5.161.26.199"),
         EgressSnatRule("172.21.0.0/16", "tcp", (0,), "5.161.26.199"),
         EgressSnatRule("172.21.0.0/16", "tcp", (25,), "not-an-ip"),
+        EgressSnatRule("::/0", "tcp", (25,), "5.161.26.199"),
+        EgressSnatRule("172.21.0.0/16", "tcp", (25,), "127.0.0.1"),
     ),
 )
 def test_reconcile_rejects_invalid_rule_before_iptables(
