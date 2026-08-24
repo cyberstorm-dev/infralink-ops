@@ -18,6 +18,7 @@ from infralink_ops.declared_file_destination import (
     repair_empty_declared_file_destination,
 )
 from infralink_ops.observation import project_registry_observation
+from infralink_ops.stable_regular_file import StableRegularFileError, read_stable_regular_file
 
 __all__ = [
     "ConfigTreeResult",
@@ -32,4 +33,6 @@ __all__ = [
     "preflight_config_trees",
     "project_registry_observation",
     "repair_empty_declared_file_destination",
+    "StableRegularFileError",
+    "read_stable_regular_file",
 ]
