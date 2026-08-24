@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "infralink @ https://github.com/cyberstorm-dev/infralink/releases/download/v0.6.10/infralink-0.6.10-py3-none-any.whl#sha256=a0861edc0c378683229ec0bc693430c30ea62d1f1299447798e3eb10467f87cd",
+  "Jinja2>=3.0",
   "PyYAML>=6.0",
 ]
 
@@ -32,6 +33,7 @@ infralink-controller-reference = "infralink_ops.image_resolution:controller_refe
 infralink-controller-host-interface = "infralink_ops.controller_host_interface:cli"
 infralink-controller-protected-transitions = "infralink_ops.controller_protected_transitions:cli"
 infralink-controller-registry-transport-trust = "infralink_ops.registry_transport_trust:cli"
+infralink-controller-template-dependencies = "infralink_ops.template_dependencies:cli"
 
 [tool.hatch.metadata]
 allow-direct-references = true
