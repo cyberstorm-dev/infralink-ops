@@ -151,10 +151,25 @@ def capture_egress_snat() -> EgressSnatSnapshot:
     )
 
 
+def _validate_snapshot(snapshot: EgressSnatSnapshot) -> EgressSnatSnapshot:
+    if type(snapshot) is not EgressSnatSnapshot or type(snapshot.chain_exists) is not bool:
+        raise EgressSnatError("egress SNAT snapshot is invalid")
+    rules = _validate_rules(snapshot.chain_rules)
+    if type(snapshot.jump_positions) is not tuple or len(snapshot.jump_positions) > _MAX_JUMPS:
+        raise EgressSnatError("egress SNAT snapshot is invalid")
+    if (
+        any(type(position) is not int or position < 1 for position in snapshot.jump_positions)
+        or tuple(sorted(set(snapshot.jump_positions))) != snapshot.jump_positions
+    ):
+        raise EgressSnatError("egress SNAT snapshot is invalid")
+    if not snapshot.chain_exists and (rules or snapshot.jump_positions):
+        raise EgressSnatError("egress SNAT snapshot is invalid")
+    return snapshot
+
+
 def restore_egress_snat(snapshot: EgressSnatSnapshot) -> None:
     """Restore a transient snapshot of the controller-owned SNAT chain."""
-    if type(snapshot) is not EgressSnatSnapshot:
-        raise EgressSnatError("egress SNAT snapshot is invalid")
+    snapshot = _validate_snapshot(snapshot)
     _remove_chain()
     if not snapshot.chain_exists:
         return

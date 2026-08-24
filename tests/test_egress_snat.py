@@ -5,6 +5,7 @@ import pytest
 from infralink_ops.egress_snat import (
     EgressSnatError,
     EgressSnatRule,
+    EgressSnatSnapshot,
     capture_egress_snat,
     reconcile_egress_snat,
     restore_egress_snat,
@@ -241,6 +242,34 @@ def test_public_snapshot_restore_preserves_owned_chain_and_jump(
         "-j",
         "INFRALINK_EGRESS_SNAT",
     ] in calls
+
+
+def test_public_restore_rejects_forged_snapshot_before_iptables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import infralink_ops.egress_snat as module
+
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("iptables must not run"),
+    )
+
+    with pytest.raises(EgressSnatError):
+        restore_egress_snat(
+            EgressSnatSnapshot(
+                chain_exists=True,
+                chain_rules=(
+                    EgressSnatRule(
+                        source_cidr="172.21.0.0/16\n-A POSTROUTING -j ACCEPT",
+                        protocol="tcp",
+                        ports=(25,),
+                        to_source="5.161.26.199",
+                    ),
+                ),
+                jump_positions=(),
+            )
+        )
 
 
 def test_unknown_existing_chain_rule_fails_before_mutation(
