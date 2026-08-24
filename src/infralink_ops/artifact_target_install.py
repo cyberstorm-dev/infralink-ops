@@ -55,6 +55,13 @@ def _read_regular(parent_fd: int, name: str) -> tuple[bytes, os.stat_result]:
         chunks: list[bytes] = []
         while chunk := os.read(descriptor, 64 * 1024):
             chunks.append(chunk)
+        after = os.fstat(descriptor)
+        if (details.st_dev, details.st_ino, details.st_size) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+        ):
+            raise ValueError
         return b"".join(chunks), details
     except (OSError, ValueError) as error:
         raise ArtifactTargetError("artifact target inspection failed") from error
@@ -93,9 +100,16 @@ def install_artifact_body(
                 try:
                     if os.listdir(directory_fd):
                         raise ArtifactTargetError("managed_destination_nonempty_directory")
+                    current = os.stat(target.name, dir_fd=parent_fd, follow_symlinks=False)
+                    opened = os.fstat(directory_fd)
+                    if not stat.S_ISDIR(current.st_mode) or (current.st_dev, current.st_ino) != (
+                        opened.st_dev,
+                        opened.st_ino,
+                    ):
+                        raise ArtifactTargetError("artifact target changed during repair")
+                    os.rmdir(target.name, dir_fd=parent_fd)
                 finally:
                     os.close(directory_fd)
-                os.rmdir(target.name, dir_fd=parent_fd)
             elif not stat.S_ISREG(details.st_mode) or stat.S_ISLNK(details.st_mode):
                 raise ArtifactTargetError("managed_destination_symlink")
             else:
