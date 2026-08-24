@@ -213,6 +213,20 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
         for interface in ("docker0", "br-*")
     ]
     container_egress_rules = list(dict.fromkeys(container_egress_rules))
+    resolver_protocols = tuple(
+        sorted(
+            {
+                rule.protocol
+                for rule in firewall.container_egress
+                if 53 in rule.ports
+            }
+        )
+    )
+    resolver_rules = [
+        f'    iifname "{interface}" {protocol} dport 53 accept'
+        for protocol in resolver_protocols
+        for interface in ("docker0", "br-*")
+    ]
     if not {rule.service for rule in firewall.host_bridge_ingress}.issubset(host_networked):
         raise FirewallError("bridge_ingress_service_not_host_networked")
     bridge_rules = [
@@ -238,6 +252,9 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
             # Tailscale's WireGuard listener is a host-runtime prerequisite,
             # not an application ingress declaration.
             "    udp dport 41641 accept",
+            # Docker rewrites its embedded resolver (127.0.0.11) to the host
+            # bridge gateway, which enters input rather than forward.
+            *resolver_rules,
             *bridge_rules,
             *ssh_rules,
             *ingress_rules,
