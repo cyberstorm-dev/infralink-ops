@@ -10,6 +10,8 @@ from typing import Any
 import yaml
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound, meta
 
+from .registry_checkout import RegistryCheckoutError, verify_registry_revision
+
 SCHEMA_VERSION = "infralink.ops.template-dependencies/v1"
 
 
@@ -39,10 +41,12 @@ def _initial_templates(host: Path) -> set[str]:
     return templates
 
 
-def discover_template_dependencies(*, registry: Path, host_uuid: str) -> tuple[str, ...]:
+def discover_template_dependencies(
+    *, registry: Path, expected_revision: str, host_uuid: str
+) -> tuple[str, ...]:
     """Return all reachable Jinja templates as stable registry-relative paths."""
 
-    root = registry.resolve()
+    root = verify_registry_revision(registry, expected_revision=expected_revision).root
     hosts = (root / "hosts").resolve()
     host = (hosts / host_uuid).resolve()
     if host.parent != hosts or not host.is_dir():
@@ -68,11 +72,10 @@ def discover_template_dependencies(*, registry: Path, host_uuid: str) -> tuple[s
             resolved.add(str(Path(filename).resolve().relative_to(root)))
         except ValueError as error:
             raise TemplateDependencyError("template_dependency_unavailable") from error
-        pending.extend(
-            environment.join_path(reference, name)
-            for reference in meta.find_referenced_templates(parsed)
-            if isinstance(reference, str)
-        )
+        for reference in meta.find_referenced_templates(parsed):
+            if not isinstance(reference, str):
+                raise TemplateDependencyError("template_dependency_unresolved")
+            pending.append(environment.join_path(reference, name))
     return tuple(sorted(resolved))
 
 
@@ -95,13 +98,16 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
 
     parser = argparse.ArgumentParser(prog="infralink-controller-template-dependencies")
     parser.add_argument("--registry", required=True, type=Path)
+    parser.add_argument("--registry-revision", required=True)
     parser.add_argument("--host-uuid", required=True)
     arguments = parser.parse_args(argv)
     try:
         templates = discover_template_dependencies(
-            registry=arguments.registry, host_uuid=arguments.host_uuid
+            registry=arguments.registry,
+            expected_revision=arguments.registry_revision,
+            host_uuid=arguments.host_uuid,
         )
-    except TemplateDependencyError as error:
+    except (RegistryCheckoutError, TemplateDependencyError) as error:
         return _payload(error=str(error)), 78
     return _payload(result={"templates": list(templates)}), 0
 

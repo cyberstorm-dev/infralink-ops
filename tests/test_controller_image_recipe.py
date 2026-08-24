@@ -16,6 +16,7 @@ def test_controller_image_is_a_public_ops_runtime() -> None:
         "infralink-controller-firewall",
         "infralink-controller-image-resolution",
         "infralink-controller-reference",
+        "infralink-controller-template-dependencies",
     ):
         assert f"command -v {command}" in recipe
 
