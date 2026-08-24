@@ -129,6 +129,87 @@ def test_failed_new_restore_reinstates_prior_owned_chain(monkeypatch: pytest.Mon
     ] in calls
 
 
+def test_failed_new_restore_reinstates_empty_prior_owned_chain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import infralink_ops.egress_snat as module
+
+    restore_bodies: list[bytes] = []
+    calls: list[list[str]] = []
+
+    def run(argv: list[str], **kwargs: object) -> object:
+        calls.append(argv)
+        if argv == ["/usr/sbin/iptables", "-t", "nat", "-S", "INFRALINK_EGRESS_SNAT"]:
+            return type("Result", (), {"returncode": 0, "stdout": "-N INFRALINK_EGRESS_SNAT\n"})()
+        if argv == ["/usr/sbin/iptables", "-t", "nat", "-S", "POSTROUTING"]:
+            return type(
+                "Result",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": "-N POSTROUTING\n-A POSTROUTING -j DOCKER\n"
+                    "-A POSTROUTING -j INFRALINK_EGRESS_SNAT\n",
+                },
+            )()
+        if argv == ["/usr/sbin/iptables-restore", "--noflush"]:
+            restore_bodies.append(kwargs["input"])  # type: ignore[index]
+            return type("Result", (), {"returncode": int(len(restore_bodies) == 1)})()
+        if argv[:5] == ["/usr/sbin/iptables", "-t", "nat", "-D", "POSTROUTING"]:
+            return type("Result", (), {"returncode": 1})()
+        return type("Result", (), {"returncode": 0, "stdout": ""})()
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+
+    with pytest.raises(EgressSnatError):
+        reconcile_egress_snat((_rule(),))
+
+    assert restore_bodies[1] == b"*nat\n-F INFRALINK_EGRESS_SNAT\nCOMMIT\n"
+    assert [
+        "/usr/sbin/iptables",
+        "-t",
+        "nat",
+        "-I",
+        "POSTROUTING",
+        "2",
+        "-j",
+        "INFRALINK_EGRESS_SNAT",
+    ] in calls
+
+
+def test_unknown_existing_chain_rule_fails_before_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import infralink_ops.egress_snat as module
+
+    calls: list[list[str]] = []
+
+    def run(argv: list[str], **_kwargs: object) -> object:
+        calls.append(argv)
+        if argv == ["/usr/sbin/iptables", "-t", "nat", "-S", "INFRALINK_EGRESS_SNAT"]:
+            return type(
+                "Result",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": "-N INFRALINK_EGRESS_SNAT\n"
+                    "-A INFRALINK_EGRESS_SNAT -m comment --comment 'unexpected rule' -j ACCEPT\n",
+                },
+            )()
+        if argv == ["/usr/sbin/iptables", "-t", "nat", "-S", "POSTROUTING"]:
+            return type("Result", (), {"returncode": 0, "stdout": "-N POSTROUTING\n"})()
+        return type("Result", (), {"returncode": 0, "stdout": ""})()
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+
+    with pytest.raises(EgressSnatError):
+        reconcile_egress_snat((_rule(),))
+
+    assert calls == [
+        ["/usr/sbin/iptables", "-t", "nat", "-S", "INFRALINK_EGRESS_SNAT"],
+        ["/usr/sbin/iptables", "-t", "nat", "-S", "POSTROUTING"],
+    ]
+
+
 @pytest.mark.parametrize(
     "rule",
     (

@@ -29,7 +29,8 @@ class EgressSnatRule:
 
 @dataclass(frozen=True, slots=True)
 class _Snapshot:
-    chain_rules: tuple[tuple[str, ...], ...]
+    chain_exists: bool
+    chain_rules: tuple[EgressSnatRule, ...]
     jump_positions: tuple[int, ...]
 
 
@@ -74,7 +75,7 @@ def _run(*arguments: str) -> int:
     return subprocess.run([_IPTABLES, "-t", "nat", *arguments], check=False).returncode
 
 
-def _rules(chain: str) -> tuple[tuple[str, ...], ...]:
+def _rules(chain: str) -> tuple[tuple[str, ...], ...] | None:
     result = subprocess.run(
         [_IPTABLES, "-t", "nat", "-S", chain],
         check=False,
@@ -83,7 +84,7 @@ def _rules(chain: str) -> tuple[tuple[str, ...], ...]:
         text=True,
     )
     if result.returncode == 1:
-        return ()
+        return None
     if result.returncode != 0 or type(result.stdout) is not str:
         raise EgressSnatError("cannot inspect egress SNAT chain")
     try:
@@ -106,27 +107,52 @@ def _remove_chain() -> None:
         raise EgressSnatError("cannot remove controller-owned egress SNAT chain")
 
 
+def _parse_owned_rule(tokens: tuple[str, ...]) -> EgressSnatRule:
+    if (
+        len(tokens) != 12
+        or tokens[:3] != ("-A", _CHAIN, "-s")
+        or tokens[4] != "-p"
+        or tokens[6:8] != ("--dport", tokens[7])
+        or tokens[8:11] != ("-j", "SNAT", "--to-source")
+    ):
+        raise EgressSnatError("cannot inspect egress SNAT chain")
+    try:
+        port = int(tokens[7])
+    except ValueError:
+        raise EgressSnatError("cannot inspect egress SNAT chain") from None
+    if str(port) != tokens[7]:
+        raise EgressSnatError("cannot inspect egress SNAT chain")
+    return _validate_rule(EgressSnatRule(tokens[3], tokens[5], (port,), tokens[11]))
+
+
 def _snapshot() -> _Snapshot:
-    chain_rules = tuple(rule for rule in _rules(_CHAIN) if rule[:2] == ("-A", _CHAIN))
-    postrouting = tuple(rule for rule in _rules("POSTROUTING") if rule[:2] == ("-A", "POSTROUTING"))
+    chain = _rules(_CHAIN)
+    postrouting = _rules("POSTROUTING")
+    if postrouting is None:
+        raise EgressSnatError("cannot inspect egress SNAT chain")
+    chain_rules: list[EgressSnatRule] = []
+    for rule in chain or ():
+        if rule == ("-N", _CHAIN):
+            continue
+        chain_rules.append(_parse_owned_rule(rule))
+    postrouting_rules = tuple(rule for rule in postrouting if rule[:2] == ("-A", "POSTROUTING"))
     jump = ("-A", "POSTROUTING", "-j", _CHAIN)
     return _Snapshot(
-        chain_rules=chain_rules,
+        chain_exists=chain is not None,
+        chain_rules=tuple(chain_rules),
         jump_positions=tuple(
-            index for index, rule in enumerate(postrouting, start=1) if rule == jump
+            index for index, rule in enumerate(postrouting_rules, start=1) if rule == jump
         ),
     )
 
 
 def _restore(snapshot: _Snapshot) -> None:
     _remove_chain()
-    if not snapshot.chain_rules:
+    if not snapshot.chain_exists:
         return
     if _run("-N", _CHAIN) != 0:
         raise EgressSnatError("cannot restore egress SNAT chain")
-    body = "\n".join(
-        ("*nat", f"-F {_CHAIN}", *(" ".join(rule) for rule in snapshot.chain_rules), "COMMIT", "")
-    ).encode("ascii")
+    body = _render(snapshot.chain_rules)
     if subprocess.run([_IPTABLES_RESTORE, "--noflush"], input=body, check=False).returncode != 0:
         raise EgressSnatError("cannot restore egress SNAT chain")
     for position in reversed(snapshot.jump_positions):
