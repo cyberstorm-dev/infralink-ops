@@ -72,3 +72,22 @@ def test_reports_durability_uncertainty_after_target_becomes_visible(tmp_path: P
             install_artifact_body(target, b"new\n", mode=0o640, uid=os.geteuid(), gid=os.getegid())
 
     assert target.read_bytes() == b"new\n"
+
+
+def test_retry_syncs_an_unchanged_target_after_durability_uncertainty(tmp_path: Path) -> None:
+    target = tmp_path / "mounted" / "config.yml"
+    target.parent.mkdir()
+
+    with patch(
+        "infralink_ops.artifact_target_install.os.fsync",
+        side_effect=[None, OSError("full"), None],
+    ) as sync:
+        with pytest.raises(ArtifactTargetDurabilityUncertainError):
+            install_artifact_body(target, b"new\n", mode=0o640, uid=os.geteuid(), gid=os.getegid())
+
+        result = install_artifact_body(
+            target, b"new\n", mode=0o640, uid=os.geteuid(), gid=os.getegid()
+        )
+
+    assert result.changed is False
+    assert sync.call_count == 3

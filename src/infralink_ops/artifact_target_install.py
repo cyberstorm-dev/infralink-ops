@@ -106,6 +106,7 @@ def install_artifact_body(
                     and current.st_uid == uid
                     and current.st_gid == gid
                 ):
+                    os.fsync(parent_fd)
                     return ArtifactTargetResult(changed=False)
         except FileNotFoundError:
             pass
