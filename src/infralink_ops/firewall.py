@@ -126,6 +126,15 @@ def _source_expression(source: str) -> str:
     return f"ip{'6' if network.version == 6 else ''} saddr {network}"
 
 
+def _destination_expression(destination: str) -> str:
+    network = ipaddress.ip_network(destination)
+    return f"ip{'6' if network.version == 6 else ''} daddr {network}"
+
+
+def _interface_expression(interface: str) -> str:
+    return "" if interface == "any" else f'iifname "{interface}" '
+
+
 def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes:
     """Validate Compose publication and render the owned nftables policy table."""
 
@@ -192,6 +201,18 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
         for source in ingress.sources
     ]
     forward_rules = list(dict.fromkeys(forward_rules))
+    bridge_networked = services_seen - host_networked
+    if not {rule.service for rule in firewall.container_egress}.issubset(bridge_networked):
+        raise FirewallError("container_egress_service_not_bridge_networked")
+    container_egress_rules = [
+        f'    iifname "{interface}" {_destination_expression(destination)} '
+        f"{rule.protocol} dport {port} accept"
+        for rule in firewall.container_egress
+        for port in rule.ports
+        for destination in rule.destinations
+        for interface in ("docker0", "br-*")
+    ]
+    container_egress_rules = list(dict.fromkeys(container_egress_rules))
     if not {rule.service for rule in firewall.host_bridge_ingress}.issubset(host_networked):
         raise FirewallError("bridge_ingress_service_not_host_networked")
     bridge_rules = [
@@ -200,9 +221,10 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
         for port in rule.ports
         for interface in ("docker0", "br-*")
     ]
+    ssh_interface = _interface_expression(firewall.management_ssh.interface)
+    ssh_port = firewall.management_ssh.port
     ssh_rules = [
-        f'    iifname "{firewall.management_ssh.interface}" {_source_expression(source)} '
-        f"tcp dport {firewall.management_ssh.port} accept"
+        f"    {ssh_interface}{_source_expression(source)} tcp dport {ssh_port} accept"
         for source in firewall.management_ssh.sources
     ]
     body = "\n".join(
@@ -220,6 +242,7 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
             "  chain forward {",
             "    type filter hook forward priority filter; policy drop;",
             "    ct state established,related accept",
+            *container_egress_rules,
             *forward_rules,
             "  }",
             "}",
