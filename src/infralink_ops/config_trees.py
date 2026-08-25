@@ -344,9 +344,11 @@ def _preflight_source_tree(
         expected_directories.update(file_path.parents)
     for path in sorted(source.rglob("*")):
         relative = PurePosixPath(path.relative_to(source).as_posix())
-        if ignore_submodule_git_metadata and relative == PurePosixPath(".git"):
-            continue
         path_stat = path.lstat()
+        if ignore_submodule_git_metadata and relative == PurePosixPath(".git"):
+            if not stat.S_ISREG(path_stat.st_mode):
+                raise ValueError("source tree contains unsafe submodule Git metadata")
+            continue
         if stat.S_ISLNK(path_stat.st_mode):
             raise ValueError(f"source tree contains a symlink: {relative}")
         if stat.S_ISDIR(path_stat.st_mode):

@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from infralink_ops.config_trees import materialize_config_tree, preflight_config_trees
+from infralink_ops.config_trees import (
+    _preflight_source_tree,
+    materialize_config_tree,
+    preflight_config_trees,
+)
 
 DECLARATION = {
     "source": "catalog/irc/static",
@@ -293,6 +297,19 @@ def test_materializes_source_from_clean_submodule_at_parent_pinned_gitlink(tmp_p
     )
 
     assert result.changed_paths == ("irc/static/modules.conf",)
+
+
+def test_rejects_symlink_in_exempted_submodule_git_metadata(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / ".git").symlink_to("/etc/passwd")
+
+    with pytest.raises(ValueError, match="unsafe submodule Git metadata"):
+        _preflight_source_tree(
+            source,
+            (),
+            ignore_submodule_git_metadata=True,
+        )
 
 
 def test_rejects_uninitialized_pinned_submodule_before_target_mutation(tmp_path: Path) -> None:
