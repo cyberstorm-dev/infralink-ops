@@ -121,6 +121,8 @@ def test_apply_materializes_only_bootstrap_owned_files_and_enables_the_single_ti
         lambda root: refreshed.append(root) or {"changed": True, "systemd_reloaded": True},
     )
     monkeypatch.setattr(bootstrap, "_enable_reconcile_timer", lambda root: enabled.append(root))
+    monkeypatch.setattr(bootstrap, "_systemd_unit_is_active", lambda _unit: False)
+    monkeypatch.setattr(bootstrap, "_systemd_unit_is_enabled", lambda _unit: False)
 
     payload, status = bootstrap.main(
         ["apply", "--host-root", str(host_root)],
