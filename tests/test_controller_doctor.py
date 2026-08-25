@@ -7,7 +7,8 @@ from infralink_ops.controller_doctor import main
 
 UUID = "00000000-0000-4000-8000-000000000001"
 REPOSITORY = "ssh://git@registry.example:2222/relaxgg/infra-registry.git"
-IMAGE = "ghcr.io/example/controller@sha256:" + ("a" * 64)
+DIGEST = "sha256:" + ("a" * 64)
+IMAGE = "ghcr.io/example/controller@" + DIGEST
 
 
 def _registry(tmp_path: Path) -> tuple[Path, str]:
@@ -47,8 +48,8 @@ def test_rejects_reconcile_evidence_for_a_different_configured_source(tmp_path: 
         f"registry_head: {revision}\n"
         "registry_ref: v1\n"
         f"registry_repo_url: {REPOSITORY}\n"
-        "controller_reference: ghcr.io/example/controller:main\n"
-        f"controller_digest: {IMAGE}\n",
+        f"controller_reference: {IMAGE}\n"
+        f"controller_digest: {DIGEST}\n",
         encoding="utf-8",
     )
     key = tmp_path / "registry-read"
@@ -102,8 +103,8 @@ def test_reports_healthy_only_with_matching_local_runtime_evidence(tmp_path: Pat
         f"registry_head: {revision}\n"
         "registry_ref: main\n"
         f"registry_repo_url: {REPOSITORY}\n"
-        "controller_reference: ghcr.io/example/controller:main\n"
-        f"controller_digest: {IMAGE}\n",
+        f"controller_reference: {IMAGE}\n"
+        f"controller_digest: {DIGEST}\n",
         encoding="utf-8",
     )
     (textfiles / "infralink-controller-reconcile.prom").write_text(
@@ -155,8 +156,8 @@ def test_rejects_metric_substrings_that_would_falsely_report_convergence(tmp_pat
         f"registry_head: {revision}\n"
         "registry_ref: main\n"
         f"registry_repo_url: {REPOSITORY}\n"
-        "controller_reference: ghcr.io/example/controller:main\n"
-        f"controller_digest: {IMAGE}\n",
+        f"controller_reference: {IMAGE}\n"
+        f"controller_digest: {DIGEST}\n",
         encoding="utf-8",
     )
     key = tmp_path / "registry-read"
@@ -227,8 +228,8 @@ def _healthy_runtime(
         f"registry_head: {revision}\n"
         "registry_ref: main\n"
         f"registry_repo_url: {REPOSITORY}\n"
-        "controller_reference: ghcr.io/example/controller:main\n"
-        f"controller_digest: {IMAGE}\n",
+        f"controller_reference: {IMAGE}\n"
+        f"controller_digest: {DIGEST}\n",
         encoding="utf-8",
     )
     (textfiles / "infralink-controller-reconcile.prom").write_text(
