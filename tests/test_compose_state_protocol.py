@@ -11,6 +11,14 @@ LOCAL_IMAGE_ID = "sha256:" + ("b" * 64)
 REPO_DIGEST = "ghcr.io/example/app@sha256:" + ("c" * 64)
 
 
+class _StringSubclass(str):
+    pass
+
+
+class _ConfiguredImageSubclass(protocol.ConfiguredImage):
+    pass
+
+
 def _record(*atoms: object) -> bytes:
     return ("\x1f".join(json.dumps(atom, separators=(",", ":")) for atom in atoms) + "\n").encode()
 
@@ -136,6 +144,56 @@ def test_protocol_rejects_noncanonical_wire_atoms(body: bytes) -> None:
 def test_configured_image_rejects_invalid_unicode() -> None:
     with pytest.raises(ValueError):
         protocol.parse_configured_image("ghcr.io/example/\ud800")
+
+
+@pytest.mark.parametrize(
+    "reference",
+    (
+        "ghcr.io/example/secret_sentinel:release",
+        "docker.io/secret_sentinel/app@sha256:" + ("c" * 64),
+        "https://user:password@registry.example/app:v1",
+    ),
+)
+def test_public_image_evidence_rejects_secret_material(reference: str) -> None:
+    with pytest.raises(ValueError):
+        protocol.parse_configured_image(reference)
+
+
+def test_distribution_evidence_rejects_secret_material() -> None:
+    with pytest.raises(protocol.ComposeStateProtocolError) as failure:
+        protocol.parse_image_output(
+            _record(LOCAL_IMAGE_ID, ["ghcr.io/secret_sentinel/app@sha256:" + ("c" * 64)]),
+            requested_ids=(LOCAL_IMAGE_ID,),
+        )
+    assert failure.value.reason == "image_invalid"
+
+
+@pytest.mark.parametrize(
+    "configured",
+    (
+        object(),
+        _ConfiguredImageSubclass("ghcr.io/example/app:v1", "ghcr.io/example/app", None),
+        protocol.ConfiguredImage(
+            _StringSubclass("ghcr.io/example/app:v1"), "ghcr.io/example/app", None
+        ),
+        protocol.ConfiguredImage(
+            "ghcr.io/example/app:v1", _StringSubclass("ghcr.io/example/app"), None
+        ),
+    ),
+)
+def test_distribution_identity_rejects_forged_configured_image(configured: object) -> None:
+    with pytest.raises(protocol.ComposeStateProtocolError) as failure:
+        protocol.select_distribution_identity(configured, (REPO_DIGEST,))  # type: ignore[arg-type]
+    assert failure.value.reason == "image_invalid"
+
+
+def test_ambiguous_distribution_identity_precedes_pinned_mismatch() -> None:
+    first = "ghcr.io/example/app@sha256:" + ("1" * 64)
+    second = "ghcr.io/example/app@sha256:" + ("2" * 64)
+    configured = protocol.parse_configured_image(first)
+    with pytest.raises(protocol.ComposeStateProtocolError) as failure:
+        protocol.select_distribution_identity(configured, (first, second))
+    assert failure.value.reason == "image_ambiguous"
 
 
 def test_selects_one_distribution_identity_for_a_configured_image() -> None:

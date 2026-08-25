@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Literal
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 ProtocolFailureReason = Literal[
     "version_output",
@@ -38,6 +40,24 @@ _POSITIVE_DECIMAL_PATTERN = re.compile(r"^[1-9][0-9]*$")
 _REPOSITORY_PATTERN = re.compile(
     r"^(?=.{1,384}$)(?:[a-z0-9][a-z0-9._-]*(?::[0-9]{1,5})?/)?[a-z0-9][a-z0-9._/-]*$"
 )
+_SECRET_ASSIGNMENT_START = re.compile(
+    r"(?i)(?<![a-z0-9])(?P<key>-*[a-z][^\s=:,;|]*)[ \t]*(?:=|:)[ \t]*"
+)
+_KNOWN_TOKEN = re.compile(
+    r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
+    r"xox[baprs]-[A-Za-z0-9-]+|xapp-[A-Za-z0-9-]+|glpat-[A-Za-z0-9_-]{8,}|"
+    r"sk-(?:proj-)?[A-Za-z0-9_-]{8,})"
+)
+_BWS_ACCESS_TOKEN = re.compile(r"(?<!\w)0\.[A-Za-z0-9_-]{20,}")
+_UNSAFE_SENTINEL = re.compile(r"(?i)\bsecret(?:_[a-z0-9]+)*_sentinel\b|\bunredacted(?:\b|_)")
+_AUTH_CREDENTIAL = re.compile(r"(?i)\b(?:basic|bearer|digest)\s+(?P<value>\S+)")
+_URI = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s]+")
+_SAFE_SECRET_METADATA_SUFFIXES = frozenset({"available", "count", "reference", "source", "status"})
+_SAFE_SECRET_STATUSES = frozenset({"expired", "missing", "redacted", "unavailable"})
+_REDACTED_VALUES = frozenset(
+    {"[REDACTED]", "Bearer [REDACTED]", "Basic [REDACTED]", "Digest [REDACTED]"}
+)
+_ASSIGNMENT_VALUE_SEPARATORS = " \t\r\n,;|"
 
 DOCKER_PREFIX = ("/usr/bin/docker", "--host", "unix:///var/run/docker.sock")
 _FIELD_SEPARATOR = "\x1f"
@@ -143,6 +163,80 @@ class InspectedContainer:
 class InspectedImage:
     local_image_id: str
     repo_digests: tuple[str, ...]
+
+
+def _is_sensitive_key(value: str) -> bool:
+    normalized = value.strip().lstrip("-")
+    normalized = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", normalized)
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", normalized)
+    parts = re.sub(r"[^A-Za-z0-9]+", "_", normalized).strip("_").lower().split("_")
+    if parts[-1:] and parts[-1] in _SAFE_SECRET_METADATA_SUFFIXES:
+        return False
+    if any(part in {"apikey", "apikeys"} for part in parts):
+        return True
+    if any(
+        left in {"api", "private"} and right in {"key", "keys"} for left, right in pairwise(parts)
+    ):
+        return True
+    return any(
+        part
+        in {
+            "authorization",
+            "credential",
+            "credentials",
+            "password",
+            "passwords",
+            "secret",
+            "secrets",
+            "token",
+            "tokens",
+        }
+        for part in parts
+    )
+
+
+def _contains_secret_without_urls(value: str) -> bool:
+    if (
+        _KNOWN_TOKEN.search(value)
+        or _BWS_ACCESS_TOKEN.search(value)
+        or _UNSAFE_SENTINEL.search(value)
+    ):
+        return True
+    assignments = list(_SECRET_ASSIGNMENT_START.finditer(value))
+    for index, match in enumerate(assignments):
+        if not _is_sensitive_key(match.group("key")):
+            continue
+        end = assignments[index + 1].start() if index + 1 < len(assignments) else len(value)
+        assigned = value[match.end() : end].strip(_ASSIGNMENT_VALUE_SEPARATORS)
+        if assigned not in _REDACTED_VALUES and assigned.lower() not in _SAFE_SECRET_STATUSES:
+            return True
+    return any(match.group("value") != "[REDACTED]" for match in _AUTH_CREDENTIAL.finditer(value))
+
+
+def _contains_secret_material(value: str) -> bool:
+    if _contains_secret_without_urls(value):
+        return True
+    candidates = [match.group() for match in _URI.finditer(value)]
+    if value.startswith("//"):
+        candidates.append(value)
+    for candidate in candidates:
+        parsed = urlsplit(candidate)
+        if parsed.password is not None:
+            return True
+        if parsed.username is not None and (
+            not parsed.scheme or _contains_secret_without_urls(unquote(parsed.username))
+        ):
+            return True
+        for component in (parsed.query, parsed.fragment):
+            if component and (
+                _contains_secret_without_urls(component)
+                or any(
+                    _is_sensitive_key(key) or _contains_secret_without_urls(item)
+                    for key, item in parse_qsl(component, keep_blank_values=True)
+                )
+            ):
+                return True
+    return False
 
 
 def _fail(reason: ProtocolFailureReason) -> None:
@@ -359,7 +453,12 @@ def parse_configured_image(value: object) -> ConfiguredImage:
         oversized = len(value.encode("utf-8")) > MAX_STRING_BYTES
     except UnicodeError:
         raise ValueError("configured image is invalid") from None
-    if oversized or any(ord(character) < 32 for character in value) or value.count("@") > 1:
+    if (
+        oversized
+        or any(ord(character) < 32 for character in value)
+        or value.count("@") > 1
+        or _contains_secret_material(value)
+    ):
         raise ValueError("configured image is invalid")
     name_and_tag, separator, digest = value.rpartition("@")
     if not separator:
@@ -442,7 +541,7 @@ def parse_container_output(
 
 
 def _parse_repo_digest(value: object) -> DistributionIdentity:
-    if type(value) is not str or value.count("@") != 1:
+    if type(value) is not str or value.count("@") != 1 or _contains_secret_material(value):
         _fail("image_invalid")
     repository, _, digest = value.rpartition("@")
     if (
@@ -491,7 +590,12 @@ def parse_image_output(
 def select_distribution_identity(
     configured: ConfiguredImage, repo_digests: object
 ) -> DistributionIdentity:
-    if type(configured) is not ConfiguredImage:
+    if (
+        type(configured) is not ConfiguredImage
+        or type(configured.reference) is not str
+        or type(configured.repository) is not str
+        or (configured.digest is not None and type(configured.digest) is not str)
+    ):
         _fail("image_invalid")
     try:
         if parse_configured_image(configured.reference) != configured:
@@ -507,10 +611,9 @@ def select_distribution_identity(
         for item in (_parse_repo_digest(value) for value in repo_digests)
         if item.image == f"{configured.repository}@{item.digest}"
     }
-    if not matching or (
-        configured.digest is not None and next(iter(matching)).digest != configured.digest
-    ):
-        _fail("image_unavailable")
     if len(matching) != 1:
-        _fail("image_ambiguous")
-    return next(iter(matching))
+        _fail("image_unavailable" if not matching else "image_ambiguous")
+    selected = next(iter(matching))
+    if configured.digest is not None and selected.digest != configured.digest:
+        _fail("image_unavailable")
+    return selected
