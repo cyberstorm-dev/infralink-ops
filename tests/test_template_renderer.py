@@ -6,6 +6,7 @@ from jinja2 import Environment
 
 from infralink_ops.template_renderer import (
     TemplateRenderError,
+    load_host_configuration_bindings,
     register_generic_jinja_helpers,
     render_declared_host,
 )
@@ -81,6 +82,80 @@ def test_rejects_non_immutable_resolved_image_before_writing(tmp_path: Path) -> 
         )
 
     assert not services.exists()
+
+
+def test_projects_host_configuration_bindings_by_profile_and_slot(tmp_path: Path) -> None:
+    registry, uuid = _registry(tmp_path)
+    catalog = registry / "service-catalog" / "v2"
+    catalog.mkdir(parents=True)
+    (catalog / "profiles.yml").write_text(
+        f"""schema_version: infralink.observation/v2
+service_profiles:
+  - id: tenant-stack
+    components: [{{id: worker, endpoints: []}}]
+    configuration_slots:
+      - id: tenant
+        kind: record
+        purpose: Declare one tenant stack.
+        fields:
+          - {{id: id, kind: string}}
+          - {{id: hosts, kind: string-list-map}}
+service_instances:
+  - id: tenant-a
+    host_id: {uuid}
+    profile_id: tenant-stack
+    components: [{{slot_id: worker}}]
+    configuration_bindings:
+      - slot_id: tenant
+        value:
+          id: a
+          hosts: {{irc: [irc.a.example.test]}}
+  - id: tenant-b
+    host_id: {uuid}
+    profile_id: tenant-stack
+    components: [{{slot_id: worker}}]
+    configuration_bindings:
+      - slot_id: tenant
+        value:
+          id: b
+          hosts: {{irc: [irc.b.example.test]}}
+""",
+        encoding="ascii",
+    )
+
+    configuration = load_host_configuration_bindings(registry=registry, host_id=uuid)
+
+    assert configuration == {
+        "tenant-stack": {
+            "tenant": [
+                {
+                    "component_id": None,
+                    "service_instance_id": "tenant-a",
+                    "value": {"id": "a", "hosts": {"irc": ["irc.a.example.test"]}},
+                },
+                {
+                    "component_id": None,
+                    "service_instance_id": "tenant-b",
+                    "value": {"id": "b", "hosts": {"irc": ["irc.b.example.test"]}},
+                },
+            ]
+        }
+    }
+
+    (registry / "hosts" / uuid / "docker-compose.yml.j2").write_text(
+        "tenant: {{ configuration['tenant-stack']['tenant'][0]['value']['id'] }}\n",
+        encoding="ascii",
+    )
+    render_declared_host(
+        registry=registry,
+        host_id=uuid,
+        services_dir=tmp_path / "services",
+        resolved_images={"app": "ghcr.io/example/app@sha256:" + "a" * 64},
+        context={"port": 8080},
+    )
+    assert (tmp_path / "services" / "docker-compose.yml").read_text(
+        encoding="ascii"
+    ) == "tenant: a\n"
 
 
 def test_generic_jinja_helpers_preserve_dsn_and_nginx_contracts() -> None:

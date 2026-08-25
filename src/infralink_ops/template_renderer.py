@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 import yaml
+from infralink.observation import ProjectValidationError, project_v2_configuration_bindings
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from infralink_ops.declared_file_destination import (
@@ -80,6 +81,45 @@ def load_host(registry: Path, host_id: str) -> dict[str, object]:
     if not isinstance(host, dict):
         raise TemplateRenderError(f"host manifest does not declare {host_id}")
     return host
+
+
+def load_host_configuration_bindings(
+    *, registry: Path, host_id: str
+) -> dict[str, dict[str, list[dict[str, object]]]]:
+    """Project V2 configuration bindings for one host into a template-safe mapping.
+
+    The Registry remains the only desired-state source.  This function only
+    groups the public Infralink projection by profile and slot, retaining the
+    service-instance identity so templates never rely on implicit precedence.
+    """
+
+    catalog = registry / "service-catalog" / "v2"
+    if not catalog.exists():
+        return {}
+    if not catalog.is_dir() or catalog.is_symlink():
+        raise TemplateRenderError("v2 service catalog is invalid")
+    sources = tuple(sorted(path for path in catalog.glob("*.yml") if path.is_file()))
+    if not sources:
+        return {}
+    try:
+        projected = project_v2_configuration_bindings(sources)
+    except ProjectValidationError as error:
+        raise TemplateRenderError("v2 configuration bindings are invalid") from error
+
+    configuration: dict[str, dict[str, list[dict[str, object]]]] = {}
+    for binding in projected.configuration_bindings:
+        if binding.host_id != host_id:
+            continue
+        slots = configuration.setdefault(binding.profile_id, {})
+        entries = slots.setdefault(binding.slot_id, [])
+        entries.append(
+            {
+                "service_instance_id": binding.service_instance_id,
+                "component_id": binding.component_id,
+                "value": binding.value,
+            }
+        )
+    return configuration
 
 
 def generic_jinja_environment(registry: Path, host_dir: Path) -> Environment:
@@ -149,6 +189,7 @@ def render_declared_host(
         "uuid": host_id,
         "canonical_name": host.get("canonical_name", host_id),
         "values": {},
+        "configuration": load_host_configuration_bindings(registry=registry, host_id=host_id),
         "images": images,
     }
     if configure_context is not None:
