@@ -105,8 +105,14 @@ def verify_declared_registry_source_directory(
 
     root = _verified_registry_root(registry_root, expected_revision)
     directory = _declared_source_directory(root, expected_revision, source)
+    source_relative = PurePosixPath(directory.relative_to(root).as_posix())
+    submodule = _pinned_submodule_for_source(root, expected_revision, source_relative)
     files = _tracked_source_files(root, expected_revision, directory)
-    _preflight_source_tree(directory, files)
+    _preflight_source_tree(
+        directory,
+        files,
+        ignore_submodule_git_metadata=submodule is not None and not submodule[2].parts,
+    )
     return DeclaredRegistrySource(root=directory, files=files)
 
 
@@ -327,6 +333,8 @@ def _nonnegative_integer(value: Any, name: str) -> int:
 def _preflight_source_tree(
     source: Path,
     tracked_files: tuple[PurePosixPath, ...],
+    *,
+    ignore_submodule_git_metadata: bool = False,
 ) -> tuple[tuple[PurePosixPath, ...], tuple[PurePosixPath, ...]]:
     files: list[PurePosixPath] = []
     directories: list[PurePosixPath] = [PurePosixPath(".")]
@@ -336,6 +344,8 @@ def _preflight_source_tree(
         expected_directories.update(file_path.parents)
     for path in sorted(source.rglob("*")):
         relative = PurePosixPath(path.relative_to(source).as_posix())
+        if ignore_submodule_git_metadata and relative == PurePosixPath(".git"):
+            continue
         path_stat = path.lstat()
         if stat.S_ISLNK(path_stat.st_mode):
             raise ValueError(f"source tree contains a symlink: {relative}")

@@ -317,3 +317,62 @@ def test_rejects_source_file_replaced_by_symlink_after_preflight(tmp_path: Path)
         DeclaredTemplateSourceLoader(sources).get_source(
             None, "sources/application-config/base.conf"
         )
+
+
+def test_renders_template_source_at_clean_pinned_submodule_root(tmp_path: Path) -> None:
+    registry, uuid = _registry(tmp_path)
+    _commit_registry(registry)
+    source_repo = tmp_path / "application-config"
+    source_repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(source_repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(source_repo), "config", "user.email", "test@example.invalid"], check=True
+    )
+    subprocess.run(["git", "-C", str(source_repo), "config", "user.name", "Test"], check=True)
+    (source_repo / "base.conf.j2").write_text("host = {{ canonical_name }}\n", encoding="ascii")
+    subprocess.run(["git", "-C", str(source_repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(source_repo), "commit", "-qm", "initial"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(registry),
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            str(source_repo),
+            "shared/application-config",
+        ],
+        check=True,
+    )
+    manifest = registry / "hosts" / uuid / "manifest.yml"
+    manifest.write_text(
+        _host_manifest(uuid)
+        + "    template_sources:\n"
+        + "      - id: application-config\n"
+        + "        source: shared/application-config\n",
+        encoding="ascii",
+    )
+    (registry / "hosts" / uuid / "docker-compose.yml.j2").write_text(
+        "{% include 'sources/application-config/base.conf.j2' %}", encoding="ascii"
+    )
+    subprocess.run(["git", "-C", str(registry), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(registry), "commit", "-qm", "declare source"], check=True)
+    revision = subprocess.check_output(
+        ["git", "-C", str(registry), "rev-parse", "HEAD"], text=True
+    ).strip()
+
+    render_declared_host(
+        registry=registry,
+        host_id=uuid,
+        services_dir=tmp_path / "services",
+        resolved_images={"app": "ghcr.io/example/app@sha256:" + "a" * 64},
+        expected_registry_revision=revision,
+        context={"port": 8080},
+    )
+
+    assert (tmp_path / "services" / "docker-compose.yml").read_text(encoding="ascii") == (
+        "host = neutral-host\n"
+    )
