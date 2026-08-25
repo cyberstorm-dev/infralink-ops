@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -265,7 +266,8 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
         or evidence.get("registry_repo_url") != environment.get("INFRALINK_REGISTRY_REPO_URL")
         or not isinstance(evidence.get("controller_reference"), str)
         or not isinstance(evidence.get("controller_digest"), str)
-        or "@sha256:" not in evidence["controller_digest"]
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", evidence["controller_digest"]) is None
+        or not evidence["controller_reference"].endswith(f"@{evidence['controller_digest']}")
     ):
         return payload, 78
     payload["evidence"]["controller"] = {
