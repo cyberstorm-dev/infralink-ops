@@ -36,6 +36,24 @@ runnable. It receives the exact registry checkout, remote, ref, identity file,
 and trust file, then returns only the detached resolved revision in a bounded
 YAML envelope. It does not render or apply desired state.
 
+## Registry Lifecycle Handoff
+
+The registry revision is the only desired-state selector. Environment-specific
+controllers own the end-to-end lifecycle around these primitives:
+
+1. Fetch the controller-configured registry checkout to the declared ref.
+2. Render environment-specific artifacts from that exact checkout.
+3. Project declared static config trees with `materialize_config_tree`.
+4. Validate and activate affected consumers with
+   `infralink-controller-config-consumers validate|activate`.
+5. Prove the live service changed through an environment-owned observation.
+
+This package deliberately stops at bounded runtime primitives. It does not
+choose registry refs, clone unknown repositories, resolve secrets, render
+environment templates, or assert that a live service is healthy. Live-service
+proof belongs to the environment controller because only that layer knows the
+service-specific observable result.
+
 ## Registry projections
 
 `infralink_ops.materialize_config_tree` projects one registry-declared static
