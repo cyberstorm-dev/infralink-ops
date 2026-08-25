@@ -25,5 +25,6 @@ product parsing.
 2. Build the Jinja loader from host templates plus declared source namespaces and remove private
    renderer extension callbacks.
 3. Update dependency discovery to use the same loader and prove it reports declared source paths.
-4. Release Ops. Migrate registry RelayOS declarations and remove management callbacks only after
-   an end-to-end registry-change-to-rendered-artifact acceptance test proves equivalence.
+4. Pair the release with registry RelayOS declaration migration and Management callback removal.
+   Do not release a version that removes the callback API until the end-to-end
+   registry-change-to-rendered-artifact acceptance test proves equivalence.
