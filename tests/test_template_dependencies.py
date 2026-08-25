@@ -62,6 +62,37 @@ def test_discovers_nested_and_relative_jinja_template_dependencies(tmp_path: Pat
     )
 
 
+def test_discovers_declared_template_source_dependencies(tmp_path: Path) -> None:
+    registry = tmp_path / "registry"
+    host = registry / "hosts" / UUID
+    source = registry / "shared" / "application-config"
+    source.mkdir(parents=True)
+    host.mkdir(parents=True)
+    (host / "manifest.yml").write_text(
+        f"""hosts:
+  {UUID}:
+    template_sources:
+      - id: application-config
+        source: shared/application-config
+""",
+        encoding="ascii",
+    )
+    (host / "docker-compose.yml.j2").write_text(
+        "{% include 'sources/application-config/base.conf.j2' %}\n", encoding="ascii"
+    )
+    (source / "base.conf.j2").write_text("answer = {{ 6 * 7 }}\n", encoding="ascii")
+    revision = _commit_registry(registry)
+
+    dependencies = discover_template_dependencies(
+        registry=registry, expected_revision=revision, host_uuid=UUID
+    )
+
+    assert dependencies == (
+        "hosts/00000000-0000-4000-8000-000000000001/docker-compose.yml.j2",
+        "shared/application-config/base.conf.j2",
+    )
+
+
 def test_rejects_missing_referenced_template(tmp_path: Path) -> None:
     registry = tmp_path / "registry"
     host = registry / "hosts" / UUID

@@ -20,6 +20,14 @@ class ConfigTreeResult:
     changed_paths: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class DeclaredRegistrySource:
+    """A complete, tracked source directory from one verified registry revision."""
+
+    root: Path
+    files: tuple[PurePosixPath, ...]
+
+
 def preflight_config_trees(
     registry_root: Path,
     *,
@@ -83,6 +91,29 @@ def materialize_config_tree(
         source_directories=source_directories,
         metadata=metadata,
     )
+
+
+def verify_declared_registry_source_directory(
+    registry_root: Path, *, expected_revision: str, source: Any
+) -> DeclaredRegistrySource:
+    """Return one tracked source directory from the selected registry revision.
+
+    Renderers that consume a registry source without materializing a complete
+    config tree use this same validation: root revision, source path, tracked
+    content, and any parent-pinned submodule must all agree before reading.
+    """
+
+    root = _verified_registry_root(registry_root, expected_revision)
+    directory = _declared_source_directory(root, expected_revision, source)
+    source_relative = PurePosixPath(directory.relative_to(root).as_posix())
+    submodule = _pinned_submodule_for_source(root, expected_revision, source_relative)
+    files = _tracked_source_files(root, expected_revision, directory)
+    _preflight_source_tree(
+        directory,
+        files,
+        ignore_submodule_git_metadata=submodule is not None and not submodule[2].parts,
+    )
+    return DeclaredRegistrySource(root=directory, files=files)
 
 
 def _targets_overlap(left: PurePosixPath, right: PurePosixPath) -> bool:
@@ -302,6 +333,8 @@ def _nonnegative_integer(value: Any, name: str) -> int:
 def _preflight_source_tree(
     source: Path,
     tracked_files: tuple[PurePosixPath, ...],
+    *,
+    ignore_submodule_git_metadata: bool = False,
 ) -> tuple[tuple[PurePosixPath, ...], tuple[PurePosixPath, ...]]:
     files: list[PurePosixPath] = []
     directories: list[PurePosixPath] = [PurePosixPath(".")]
@@ -312,6 +345,10 @@ def _preflight_source_tree(
     for path in sorted(source.rglob("*")):
         relative = PurePosixPath(path.relative_to(source).as_posix())
         path_stat = path.lstat()
+        if ignore_submodule_git_metadata and relative == PurePosixPath(".git"):
+            if not stat.S_ISREG(path_stat.st_mode):
+                raise ValueError("source tree contains unsafe submodule Git metadata")
+            continue
         if stat.S_ISLNK(path_stat.st_mode):
             raise ValueError(f"source tree contains a symlink: {relative}")
         if stat.S_ISDIR(path_stat.st_mode):

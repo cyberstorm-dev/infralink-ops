@@ -8,24 +8,21 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from jinja2 import Environment, FileSystemLoader, TemplateNotFound, meta
+from jinja2 import TemplateNotFound, meta
 
 from .registry_checkout import RegistryCheckoutError, verify_registry_revision
+from .template_renderer import RelativeIncludeEnvironment, load_host
+from .template_sources import (
+    DeclaredTemplateSourceLoader,
+    TemplateSourceError,
+    load_template_sources,
+)
 
 SCHEMA_VERSION = "infralink.ops.template-dependencies/v1"
 
 
 class TemplateDependencyError(ValueError):
     """A declared Jinja template graph is unavailable or invalid."""
-
-
-class RelativeIncludeEnvironment(Environment):
-    """Resolve a bare include relative to the including template."""
-
-    def join_path(self, template: str, parent: str) -> str:
-        if "/" not in template and "/" in parent:
-            return f"{parent.rsplit('/', 1)[0]}/{template}"
-        return template
 
 
 def _initial_templates(host: Path) -> set[str]:
@@ -51,7 +48,21 @@ def discover_template_dependencies(
     host = (hosts / host_uuid).resolve()
     if host.parent != hosts or not host.is_dir():
         raise TemplateDependencyError("template_dependency_unavailable")
-    loader = FileSystemLoader([str(host), str(root / "hosts" / "_templates"), str(root / "hosts")])
+    try:
+        declaration = load_host(root, host_uuid) if (host / "manifest.yml").is_file() else {}
+        sources = load_template_sources(
+            registry=root, expected_revision=expected_revision, host=declaration
+        )
+    except (TemplateSourceError, ValueError) as error:
+        raise TemplateDependencyError("template_dependency_unavailable") from error
+    from jinja2 import ChoiceLoader, FileSystemLoader
+
+    loader = ChoiceLoader(
+        [
+            DeclaredTemplateSourceLoader(sources),
+            FileSystemLoader([str(host), str(root / "hosts" / "_templates"), str(root / "hosts")]),
+        ]
+    )
     environment = RelativeIncludeEnvironment(loader=loader)
     pending = list(_initial_templates(host))
     visited: set[str] = set()
@@ -64,7 +75,7 @@ def discover_template_dependencies(
         try:
             source, filename, _ = loader.get_source(environment, name)
             parsed = environment.parse(source)
-        except (OSError, TemplateNotFound, ValueError) as error:
+        except (OSError, TemplateNotFound, TemplateSourceError, ValueError) as error:
             raise TemplateDependencyError("template_dependency_unavailable") from error
         if filename is None:
             raise TemplateDependencyError("template_dependency_unavailable")
