@@ -141,6 +141,8 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
     if type(firewall) is not FirewallPolicy or type(compose) is not bytes:
         raise FirewallError("firewall_inputs_invalid")
     external, services_seen, host_networked = _published_ports(compose)
+    if firewall.container_egress:
+        raise FirewallError("container_egress_unsupported")
     observed = {
         (entry.service, entry.protocol, entry.host_address, entry.port) for entry in external
     }
@@ -201,24 +203,9 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
         for source in ingress.sources
     ]
     forward_rules = list(dict.fromkeys(forward_rules))
-    bridge_networked = services_seen - host_networked
-    if not {rule.service for rule in firewall.container_egress}.issubset(bridge_networked):
-        raise FirewallError("container_egress_service_not_bridge_networked")
-    container_egress_rules = [
-        f'    iifname "{interface}" {_destination_expression(destination)} '
-        f"{rule.protocol} dport {port} accept"
-        for rule in firewall.container_egress
-        for port in rule.ports
-        for destination in rule.destinations
-        for interface in ("docker0", "br-*")
-    ]
-    container_egress_rules = list(dict.fromkeys(container_egress_rules))
-    resolver_protocols = tuple(
-        sorted({rule.protocol for rule in firewall.container_egress if 53 in rule.ports})
-    )
     resolver_rules = [
         f'    iifname "{interface}" {protocol} dport 53 accept'
-        for protocol in resolver_protocols
+        for protocol in ("udp", "tcp")
         for interface in ("docker0", "br-*")
     ]
     if not {rule.service for rule in firewall.host_bridge_ingress}.issubset(host_networked):
@@ -246,8 +233,9 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
             # Tailscale's WireGuard listener is a host-runtime prerequisite,
             # not an application ingress declaration.
             "    udp dport 41641 accept",
-            # Docker rewrites its embedded resolver (127.0.0.11) to the host
-            # bridge gateway, which enters input rather than forward.
+            # Docker's embedded resolver reaches the host bridge gateway, then
+            # forwards to the host's configured DNS upstream. This is a
+            # controller runtime prerequisite, not service-specific egress.
             *resolver_rules,
             *bridge_rules,
             *ssh_rules,
@@ -256,7 +244,11 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
             "  chain forward {",
             "    type filter hook forward priority filter; policy drop;",
             "    ct state established,related accept",
-            *container_egress_rules,
+            # Docker bridge containers have ordinary outbound connectivity.
+            # The firewall owns host ingress, not per-application egress
+            # allowlists, which would make image maintenance brittle.
+            '    iifname "docker0" accept',
+            '    iifname "br-*" accept',
             *forward_rules,
             "  }",
             "}",
