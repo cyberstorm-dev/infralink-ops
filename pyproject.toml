@@ -34,6 +34,7 @@ infralink-controller-host-interface = "infralink_ops.controller_host_interface:c
 infralink-controller-protected-transitions = "infralink_ops.controller_protected_transitions:cli"
 infralink-controller-registry-transport-trust = "infralink_ops.registry_transport_trust:cli"
 infralink-controller-template-dependencies = "infralink_ops.template_dependencies:cli"
+infralink-controller-bootstrap = "infralink_ops.controller_bootstrap:cli"
 
 [tool.hatch.metadata]
 allow-direct-references = true
