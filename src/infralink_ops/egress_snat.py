@@ -142,12 +142,14 @@ def capture_egress_snat() -> EgressSnatSnapshot:
         chain_rules.append(_parse_owned_rule(rule))
     postrouting_rules = tuple(rule for rule in postrouting if rule[:2] == ("-A", "POSTROUTING"))
     jump = ("-A", "POSTROUTING", "-j", _CHAIN)
-    return EgressSnatSnapshot(
-        chain_exists=chain is not None,
-        chain_rules=tuple(chain_rules),
-        jump_positions=tuple(
-            index for index, rule in enumerate(postrouting_rules, start=1) if rule == jump
-        ),
+    return _validate_snapshot(
+        EgressSnatSnapshot(
+            chain_exists=chain is not None,
+            chain_rules=tuple(chain_rules),
+            jump_positions=tuple(
+                index for index, rule in enumerate(postrouting_rules, start=1) if rule == jump
+            ),
+        )
     )
 
 
