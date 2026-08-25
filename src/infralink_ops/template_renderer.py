@@ -11,18 +11,23 @@ import json
 import os
 import re
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
 
 import yaml
 from infralink.observation import ProjectValidationError, project_v2_configuration_bindings
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
+from jinja2 import ChoiceLoader, Environment, FileSystemLoader, StrictUndefined
 
 from infralink_ops.declared_file_destination import (
     DeclaredFileDestinationError,
     repair_empty_declared_file_destination,
+)
+from infralink_ops.template_sources import (
+    DeclaredTemplateSourceLoader,
+    TemplateSourceError,
+    load_template_sources,
 )
 
 _IMMUTABLE_IMAGE = re.compile(r"^[a-z0-9][a-z0-9._/-]{0,383}@sha256:[0-9a-f]{64}$")
@@ -122,10 +127,24 @@ def load_host_configuration_bindings(
     return configuration
 
 
-def generic_jinja_environment(registry: Path, host_dir: Path) -> Environment:
+def generic_jinja_environment(
+    registry: Path,
+    host_dir: Path,
+    *,
+    expected_registry_revision: str | None,
+    host: Mapping[str, object],
+) -> Environment:
+    sources = load_template_sources(
+        registry=registry, expected_revision=expected_registry_revision, host=host
+    )
     env = RelativeIncludeEnvironment(
-        loader=FileSystemLoader(
-            [str(host_dir), str(registry / "hosts" / "_templates"), str(registry / "hosts")]
+        loader=ChoiceLoader(
+            [
+                DeclaredTemplateSourceLoader(sources),
+                FileSystemLoader(
+                    [str(host_dir), str(registry / "hosts" / "_templates"), str(registry / "hosts")]
+                ),
+            ]
         ),
         undefined=StrictUndefined,
         autoescape=False,
@@ -158,20 +177,15 @@ def render_declared_host(
     host_id: str,
     services_dir: Path,
     resolved_images: Mapping[str, str],
+    expected_registry_revision: str | None = None,
     context: Mapping[str, object] | None = None,
     environment_values: Mapping[str, str] | None = None,
-    configure_environment: Callable[[Environment], object] | None = None,
-    configure_context: Callable[[dict[str, object], dict[str, object]], Mapping[str, object]]
-    | None = None,
-    configure_config_context: Callable[
-        [dict[str, object], dict[str, object], Path], Mapping[str, object]
-    ]
-    | None = None,
 ) -> TemplateRenderResult:
     """Render generic host declarations from a caller-selected registry checkout.
 
-    The three ``configure_*`` callbacks are explicit extension seams for private
-    consumers. They cannot select a registry or write files.
+    Template sources are declared by the host manifest and are bound to the
+    caller-selected registry revision. Private callback extensions are not part
+    of this renderer's contract.
     """
 
     registry = registry.resolve()
@@ -179,9 +193,12 @@ def render_declared_host(
     host = load_host(registry, host_id)
     images = validate_resolved_images(dict(resolved_images))
     permissions = load_rendered_config_permissions(host)
-    env = generic_jinja_environment(registry, host_dir)
-    if configure_environment is not None:
-        configure_environment(env)
+    try:
+        env = generic_jinja_environment(
+            registry, host_dir, expected_registry_revision=expected_registry_revision, host=host
+        )
+    except TemplateSourceError as error:
+        raise TemplateRenderError(str(error)) from error
     render_context: dict[str, object] = {
         **(os.environ if environment_values is None else environment_values),
         **(context or {}),
@@ -192,12 +209,6 @@ def render_declared_host(
         "configuration": load_host_configuration_bindings(registry=registry, host_id=host_id),
         "images": images,
     }
-    if configure_context is not None:
-        supplied = configure_context(dict(render_context), host)
-        if not isinstance(supplied, Mapping):
-            raise TemplateRenderError("template context extension must return a mapping")
-        render_context.update(supplied)
-
     services_dir.mkdir(parents=True, exist_ok=True)
     compose = _render_template(env, "docker-compose.yml.j2", render_context).encode("utf-8")
     compose_changed = _atomic_write(services_dir / "docker-compose.yml", compose)
@@ -219,15 +230,7 @@ def render_declared_host(
         destination = managed_config / destination_relative
         if source.suffix == ".j2":
             template_name = (Path("config") / relative).as_posix()
-            template_context = render_context
-            if configure_config_context is not None:
-                supplied = configure_config_context(dict(render_context), host, relative)
-                if not isinstance(supplied, Mapping):
-                    raise TemplateRenderError(
-                        "config template context extension must return a mapping"
-                    )
-                template_context = {**render_context, **supplied}
-            body = _render_template(env, template_name, template_context).encode("utf-8")
+            body = _render_template(env, template_name, render_context).encode("utf-8")
         else:
             body = source.read_bytes()
         if _write_declared_config(destination, managed_config, body):

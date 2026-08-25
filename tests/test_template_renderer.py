@@ -1,4 +1,5 @@
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,19 @@ def _registry(tmp_path: Path) -> tuple[Path, str]:
         "host: {{ canonical_name }}\nport: {{ port }}\n", encoding="utf-8"
     )
     return registry, uuid
+
+
+def _commit_registry(registry: Path) -> str:
+    subprocess.run(["git", "init", "-q", str(registry)], check=True)
+    subprocess.run(
+        ["git", "-C", str(registry), "config", "user.email", "test@example.invalid"], check=True
+    )
+    subprocess.run(["git", "-C", str(registry), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(registry), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(registry), "commit", "-qm", "initial"], check=True)
+    return subprocess.check_output(
+        ["git", "-C", str(registry), "rev-parse", "HEAD"], text=True
+    ).strip()
 
 
 def test_renders_declared_host_with_relative_include_permissions_and_stale_prune(
@@ -174,3 +188,100 @@ def test_generic_jinja_helpers_preserve_dsn_and_nginx_contracts() -> None:
         "mysql://editor:Ts8BtKlfx/hSTXtRF16JouhuLepqpEbt@100.89.135.65:3306/tenant?x=1"
     )
     assert env.from_string("{{ value | nginx_quoted }}").render(value='x"y\\z') == '"x\\"y\\\\z"'
+
+
+def test_declared_template_source_renders_literal_and_jinja_with_host_context(
+    tmp_path: Path,
+) -> None:
+    registry, uuid = _registry(tmp_path)
+    source = registry / "shared" / "application-config"
+    source.mkdir(parents=True)
+    (source / "literal.conf").write_text("literal = yes\n", encoding="ascii")
+    (source / "rendered.conf.j2").write_text("host = {{ canonical_name }}\n", encoding="ascii")
+    manifest = registry / "hosts" / uuid / "manifest.yml"
+    manifest.write_text(
+        _host_manifest(uuid)
+        + "    template_sources:\n"
+        + "      - id: application-config\n"
+        + "        source: shared/application-config\n",
+        encoding="ascii",
+    )
+    (registry / "hosts" / uuid / "docker-compose.yml.j2").write_text(
+        "{% include 'sources/application-config/literal.conf' %}"
+        "{% include 'sources/application-config/rendered.conf.j2' %}",
+        encoding="ascii",
+    )
+
+    revision = _commit_registry(registry)
+    result = render_declared_host(
+        registry=registry,
+        host_id=uuid,
+        services_dir=tmp_path / "services",
+        resolved_images={"app": "ghcr.io/example/app@sha256:" + "a" * 64},
+        expected_registry_revision=revision,
+        context={"port": 8080},
+    )
+
+    assert result.compose_changed is True
+    assert (tmp_path / "services" / "docker-compose.yml").read_text(encoding="ascii") == (
+        "literal = yes\nhost = neutral-host\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "      - id: ../escape\n        source: shared/application-config\n",
+        "      - id: application-config\n        source: ../escape\n",
+        "      - id: application-config\n        source: shared/application-config\n"
+        "      - id: application-config\n        source: shared/other\n",
+    ],
+)
+def test_rejects_invalid_declared_template_source_before_writing(
+    tmp_path: Path, declaration: str
+) -> None:
+    registry, uuid = _registry(tmp_path)
+    (registry / "shared" / "application-config").mkdir(parents=True)
+    manifest = registry / "hosts" / uuid / "manifest.yml"
+    manifest.write_text(
+        _host_manifest(uuid) + "    template_sources:\n" + declaration, encoding="ascii"
+    )
+    revision = _commit_registry(registry)
+
+    with pytest.raises(TemplateRenderError, match="template source"):
+        render_declared_host(
+            registry=registry,
+            host_id=uuid,
+            services_dir=tmp_path / "services",
+            resolved_images={"app": "ghcr.io/example/app@sha256:" + "a" * 64},
+            expected_registry_revision=revision,
+        )
+
+    assert not (tmp_path / "services").exists()
+
+
+def test_rejects_symlink_in_declared_template_source_before_writing(tmp_path: Path) -> None:
+    registry, uuid = _registry(tmp_path)
+    source = registry / "shared" / "application-config"
+    source.mkdir(parents=True)
+    (source / "base.conf").symlink_to("/etc/passwd")
+    manifest = registry / "hosts" / uuid / "manifest.yml"
+    manifest.write_text(
+        _host_manifest(uuid)
+        + "    template_sources:\n"
+        + "      - id: application-config\n"
+        + "        source: shared/application-config\n",
+        encoding="ascii",
+    )
+    revision = _commit_registry(registry)
+
+    with pytest.raises(TemplateRenderError, match="template source"):
+        render_declared_host(
+            registry=registry,
+            host_id=uuid,
+            services_dir=tmp_path / "services",
+            resolved_images={"app": "ghcr.io/example/app@sha256:" + "a" * 64},
+            expected_registry_revision=revision,
+        )
+
+    assert not (tmp_path / "services").exists()
