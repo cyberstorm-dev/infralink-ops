@@ -20,6 +20,14 @@ class ConfigTreeResult:
     changed_paths: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class DeclaredRegistrySource:
+    """A complete, tracked source directory from one verified registry revision."""
+
+    root: Path
+    files: tuple[PurePosixPath, ...]
+
+
 def preflight_config_trees(
     registry_root: Path,
     *,
@@ -87,7 +95,7 @@ def materialize_config_tree(
 
 def verify_declared_registry_source_directory(
     registry_root: Path, *, expected_revision: str, source: Any
-) -> Path:
+) -> DeclaredRegistrySource:
     """Return one tracked source directory from the selected registry revision.
 
     Renderers that consume a registry source without materializing a complete
@@ -97,8 +105,9 @@ def verify_declared_registry_source_directory(
 
     root = _verified_registry_root(registry_root, expected_revision)
     directory = _declared_source_directory(root, expected_revision, source)
-    _preflight_source_tree(directory, _tracked_source_files(root, expected_revision, directory))
-    return directory
+    files = _tracked_source_files(root, expected_revision, directory)
+    _preflight_source_tree(directory, files)
+    return DeclaredRegistrySource(root=directory, files=files)
 
 
 def _targets_overlap(left: PurePosixPath, right: PurePosixPath) -> bool:

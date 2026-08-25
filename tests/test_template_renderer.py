@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 from jinja2 import Environment
 
 from infralink_ops.template_renderer import (
@@ -10,6 +11,11 @@ from infralink_ops.template_renderer import (
     load_host_configuration_bindings,
     register_generic_jinja_helpers,
     render_declared_host,
+)
+from infralink_ops.template_sources import (
+    DeclaredTemplateSourceLoader,
+    TemplateSourceError,
+    load_template_sources,
 )
 
 
@@ -285,3 +291,29 @@ def test_rejects_symlink_in_declared_template_source_before_writing(tmp_path: Pa
         )
 
     assert not (tmp_path / "services").exists()
+
+
+def test_rejects_source_file_replaced_by_symlink_after_preflight(tmp_path: Path) -> None:
+    registry, uuid = _registry(tmp_path)
+    source = registry / "shared" / "application-config"
+    source.mkdir(parents=True)
+    source_file = source / "base.conf"
+    source_file.write_text("safe\n", encoding="ascii")
+    manifest = registry / "hosts" / uuid / "manifest.yml"
+    manifest.write_text(
+        _host_manifest(uuid)
+        + "    template_sources:\n"
+        + "      - id: application-config\n"
+        + "        source: shared/application-config\n",
+        encoding="ascii",
+    )
+    revision = _commit_registry(registry)
+    host = yaml.safe_load(manifest.read_text(encoding="ascii"))["hosts"][uuid]
+    sources = load_template_sources(registry=registry, expected_revision=revision, host=host)
+    source_file.unlink()
+    source_file.symlink_to("/etc/passwd")
+
+    with pytest.raises(TemplateSourceError, match="template source file is unavailable"):
+        DeclaredTemplateSourceLoader(sources).get_source(
+            None, "sources/application-config/base.conf"
+        )
