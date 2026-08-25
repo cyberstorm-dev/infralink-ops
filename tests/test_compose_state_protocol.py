@@ -159,13 +159,12 @@ def test_public_image_evidence_rejects_secret_material(reference: str) -> None:
         protocol.parse_configured_image(reference)
 
 
-def test_distribution_evidence_rejects_secret_material() -> None:
-    with pytest.raises(protocol.ComposeStateProtocolError) as failure:
-        protocol.parse_image_output(
-            _record(LOCAL_IMAGE_ID, ["ghcr.io/secret_sentinel/app@sha256:" + ("c" * 64)]),
-            requested_ids=(LOCAL_IMAGE_ID,),
-        )
-    assert failure.value.reason == "image_invalid"
+def test_distribution_evidence_keeps_nonmatching_aliases_unselected() -> None:
+    image = protocol.parse_image_output(
+        _record(LOCAL_IMAGE_ID, ["ghcr.io/secret_sentinel/app@sha256:" + ("c" * 64)]),
+        requested_ids=(LOCAL_IMAGE_ID,),
+    )
+    assert image[0].repo_digests == ("ghcr.io/secret_sentinel/app@sha256:" + ("c" * 64),)
 
 
 @pytest.mark.parametrize(
@@ -203,3 +202,42 @@ def test_selects_one_distribution_identity_for_a_configured_image() -> None:
     )
     assert selected.image == REPO_DIGEST
     assert selected.digest == "sha256:" + ("c" * 64)
+
+
+@pytest.mark.parametrize(
+    "reference",
+    (
+        "ghcr.io/example//app:release",
+        "registry.example.com:0/team/app",
+        "registry.example.com:65536/team/app",
+    ),
+)
+def test_configured_image_uses_exact_repository_and_port_grammar(reference: str) -> None:
+    with pytest.raises(ValueError):
+        protocol.parse_configured_image(reference)
+
+
+def test_nonmatching_repo_digest_alias_is_validated_then_discarded() -> None:
+    selected = protocol.select_distribution_identity(
+        protocol.parse_configured_image("ghcr.io/example/app:v1"),
+        (
+            "docker.io/secret_sentinel/app@sha256:" + ("d" * 64),
+            REPO_DIGEST,
+        ),
+    )
+    assert selected.image == REPO_DIGEST
+
+
+@pytest.mark.parametrize(
+    "atoms",
+    (
+        ("28.3", "28.3.2", "1.51", "1.51"),
+        ("28.3.2.1", "28.3.2", "1.51", "1.51"),
+        ("28.03.2", "28.3.2", "1.51", "1.51"),
+        ("28.3.2", "28.3.2", "1.051", "1.51"),
+    ),
+)
+def test_docker_versions_are_exact_patch_and_api_releases(atoms: tuple[str, ...]) -> None:
+    with pytest.raises(protocol.ComposeStateProtocolError) as failure:
+        protocol.parse_version_output(_record(*atoms))
+    assert failure.value.reason == "version_output"

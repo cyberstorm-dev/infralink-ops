@@ -34,12 +34,11 @@ DISTRIBUTION_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PROJECT_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 _SERVICE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,127}$")
 _TAG_PATTERN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
-_VERSION_PATTERN = re.compile(r"^[0-9]+(?:\.[0-9]+){1,3}(?:[-+][0-9A-Za-z.-]+)?$")
-_API_VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+$")
+_VERSION_PATTERN = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
+_API_VERSION_PATTERN = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
 _POSITIVE_DECIMAL_PATTERN = re.compile(r"^[1-9][0-9]*$")
-_REPOSITORY_PATTERN = re.compile(
-    r"^(?=.{1,384}$)(?:[a-z0-9][a-z0-9._-]*(?::[0-9]{1,5})?/)?[a-z0-9][a-z0-9._/-]*$"
-)
+_REPOSITORY_COMPONENT_PATTERN = re.compile(r"^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$")
+_REGISTRY_HOST_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 _SECRET_ASSIGNMENT_START = re.compile(
     r"(?i)(?<![a-z0-9])(?P<key>-*[a-z][^\s=:,;|]*)[ \t]*(?:=|:)[ \t]*"
 )
@@ -268,6 +267,44 @@ def _service(value: object, reason: ProtocolFailureReason) -> str:
     return text
 
 
+def _valid_registry_host(host: str) -> bool:
+    if not host or len(host) > 253:
+        return False
+    return all(
+        len(label) <= 63 and _REGISTRY_HOST_LABEL_PATTERN.fullmatch(label) is not None
+        for label in host.split(".")
+    )
+
+
+def _valid_repository_name(name: str) -> bool:
+    if not name or len(name) > 255:
+        return False
+    components = name.split("/")
+    if any(not component for component in components):
+        return False
+    repository_components = components
+    first = components[0]
+    if len(components) > 1 and ("." in first or ":" in first or first == "localhost"):
+        host = first
+        if ":" in first:
+            host, separator, port = first.rpartition(":")
+            if (
+                not separator
+                or not port.isascii()
+                or not port.isdigit()
+                or len(port) > 5
+                or not 1 <= int(port) <= 65_535
+            ):
+                return False
+        if not _valid_registry_host(host):
+            return False
+        repository_components = components[1:]
+    return all(
+        _REPOSITORY_COMPONENT_PATTERN.fullmatch(component) is not None
+        for component in repository_components
+    )
+
+
 def _bounded_command(argv: tuple[str, ...], reason: ProtocolFailureReason) -> tuple[str, ...]:
     if type(argv) is not tuple or not argv:
         _fail(reason)
@@ -471,7 +508,7 @@ def parse_configured_image(value: object) -> ConfiguredImage:
         repository, tag = name_and_tag[:colon], name_and_tag[colon + 1 :]
         if _TAG_PATTERN.fullmatch(tag) is None:
             raise ValueError("configured image tag is invalid")
-    if _REPOSITORY_PATTERN.fullmatch(repository) is None:
+    if not _valid_repository_name(repository):
         raise ValueError("configured image repository is invalid")
     return ConfiguredImage(value, repository, digest)
 
@@ -541,11 +578,11 @@ def parse_container_output(
 
 
 def _parse_repo_digest(value: object) -> DistributionIdentity:
-    if type(value) is not str or value.count("@") != 1 or _contains_secret_material(value):
+    if type(value) is not str or value.count("@") != 1:
         _fail("image_invalid")
     repository, _, digest = value.rpartition("@")
     if (
-        _REPOSITORY_PATTERN.fullmatch(repository) is None
+        not _valid_repository_name(repository)
         or DISTRIBUTION_DIGEST_PATTERN.fullmatch(digest) is None
     ):
         _fail("image_invalid")
