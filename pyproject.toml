@@ -9,7 +9,7 @@ description = "Operational runtime for direct Infralink registry projections"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "infralink @ https://github.com/cyberstorm-dev/infralink/releases/download/v0.6.11/infralink-0.6.11-py3-none-any.whl#sha256=49f91c6b2194dc6cfb5d9bcff24f52265ee5eeafb47e227bfc9d1dda39a59ac1",
+  "infralink @ https://github.com/cyberstorm-dev/infralink/releases/download/v0.6.12/infralink-0.6.12-py3-none-any.whl#sha256=a70e1eeba5314ecf348357a5bf85610a507609733402380ba836a76f6b286edc",
   "Jinja2>=3.0",
   "PyYAML>=6.0",
 ]
