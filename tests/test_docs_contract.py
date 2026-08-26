@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+WOODPECKER = ROOT / ".woodpecker.yml"
 
 
 def _github_anchor(text: str) -> str:
@@ -70,6 +71,31 @@ def test_readme_is_operator_entrypoint() -> None:
         "/opt/services/config",
     ]:
         assert token in text
+
+
+def test_woodpecker_exposes_pr_safe_docs_contract() -> None:
+    text = WOODPECKER.read_text(encoding="utf-8")
+
+    assert "docs-contract:" in text
+    match = re.search(r"^  docs-contract:\n(?P<body>(?:    .+\n)+)", text, re.MULTILINE)
+    assert match is not None
+    docs_step = match.group("body")
+
+    for token in [
+        "image: python:3.12-slim-bookworm",
+        "python -m pip install --disable-pip-version-check pytest",
+        "python -m pytest -q tests/test_docs_contract.py",
+    ]:
+        assert token in docs_step
+
+    for forbidden in [
+        "from_secret:",
+        "docker",
+        "BWS",
+        "ghcr.io",
+        "python -m build",
+    ]:
+        assert forbidden not in docs_step
 
 
 def test_controller_runtime_guide_documents_evidence_and_boundaries() -> None:
