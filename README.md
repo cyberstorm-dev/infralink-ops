@@ -1,70 +1,134 @@
 # Infralink Ops
 
-`infralink-controller-images retain-and-prune` is the controller-runtime
-primitive for bounded Docker image retention. It accepts the selected immutable
-image reference and returns a YAML/HATEOAS envelope; cache tags are never used
-to select desired state.
+## BLUF
 
-`infralink-controller-metrics publish-success|publish-failure` is the
-controller-runtime primitive for atomically publishing the existing
-node-exporter convergence textfile. It accepts explicit revision/time inputs,
-returns a YAML/HATEOAS envelope, and does not inspect a registry or select a
-desired state.
+This repo packages private controller-runtime helpers for managed hosts.
 
-`infralink-controller-doctor` is the matching read-only host-runtime check.
-It verifies the existing configured registry checkout, reconciler evidence,
-rendered Compose services, declared firewall, and convergence textfile against
-one another. It does not fetch, render, apply, or select desired state.
+Use it when you need bounded host primitives for registry checkout, template
+rendering, config projection, Docker image retention, Compose consumer
+activation, firewall verification, secret rendering, or host doctor evidence.
 
-Operational support images consumed by registry declarations. The first image adds a
-Gitleaks receive gate to Gitea. It uses Git's template directory for newly created
-repositories and a registry-declared synchronizer for existing repositories.
+Do not use this repo to select fleet desired state. Registry revisions, service
+definitions, image pins, hostnames, and secret bindings come from the
+environment registry.
 
-`infralink_ops.controller_adapter.invoke_controller_adapter` is the typed
-runtime boundary for environment adapters. It accepts a fixed argv and a public
-Infralink request contract, then returns only a validated, revision-matched
-adapter result. Environment-specific rendering and provider behavior remains
-outside this package.
+## Reader Paths
 
-`infralink_ops.registry_checkout.fetch_configured_registry` is the sole
-checkout primitive for controller runtimes. It only fetches a declared ref into
-an existing clean checkout after validating its exact origin and explicit SSH
-identity/trust files; it never clones, rewrites a remote, or discovers trust.
+| Goal | Start here |
+| --- | --- |
+| Understand the runtime boundary | [Controller runtime guide](docs/controller-runtime-guide.md) |
+| Debug a stale RelayOS staging rollout | [Controller runtime guide](docs/controller-runtime-guide.md#triage-a-stale-host) |
+| Check available CLIs | [`pyproject.toml`](pyproject.toml) |
+| Inspect host-installed launcher assets | [`src/infralink_ops/assets/`](src/infralink_ops/assets/) |
+| Review controller behavior | [`src/infralink_ops/`](src/infralink_ops/) and [`tests/`](tests/) |
 
-`infralink-controller-registry-checkout fetch` is the matching controller
-runnable. It receives the exact registry checkout, remote, ref, identity file,
-and trust file, then returns only the detached resolved revision in a bounded
-YAML envelope. It does not render or apply desired state.
+## How It Fits
 
-## Registry projections
+```mermaid
+flowchart LR
+    registry["configured registry revision"] --> checkout["/var/lib/infralink/registry"]
+    checkout --> render["template render and static config projection"]
+    render --> consumers["Compose consumer validate/activate"]
+    consumers --> evidence["doctor, metrics, and logs"]
+    evidence --> operator["environment-owned acceptance"]
+```
 
-`infralink_ops.materialize_config_tree` projects one registry-declared static
-configuration tree into a controller-owned path beneath `/opt/services/config`.
-It requires the registry checkout selected by the caller's normal deployment path
-and the exact Git revision expected for that checkout. It validates the source and
-target trees before writing, atomically replaces changed files, and removes stale
-files only below the declared target.
+This repo implements the bounded primitives in the middle of the flow. It does
+not own the registry data model or the environment-specific acceptance result.
 
-The package does not fetch Git, select a revision, store a plan, or invoke a
-service consumer. A controller supplies those decisions and may pass the returned
-changed paths to its existing consumer executor.
+## Main CLIs
 
-`infralink-controller-config-consumers validate|activate` is the matching
-public controller runnable for Compose services that consume those rendered
-paths. The caller supplies an already-rendered deployment declaration, Compose
-file, controller-owned config root, and changed relative paths. `validate` runs
-only the validators for affected declared consumers. `activate` recreates only
-affected consumers or services with changed or stale direct config-file binds.
-It returns the selected consumer and service identifiers in a bounded YAML
-envelope. It does not fetch Git, choose registry state, resolve secrets, or
-infer environment-specific paths.
+| Command | Purpose |
+| --- | --- |
+| `infralink-controller-registry-checkout fetch` | Fetch a declared registry ref into an existing clean checkout. |
+| `infralink-controller-template-render` | Render registry-declared templates from explicit inputs. |
+| `infralink-controller-config-consumers validate\|activate` | Validate or recreate services affected by rendered config changes. |
+| `infralink-controller-images retain-and-prune` | Keep selected immutable Docker images and prune stale cache images. |
+| `infralink-controller-render-secrets` | Resolve registry-declared render-secret bindings through BWS. |
+| `infralink-controller-firewall render\|verify` | Render or verify declared nftables policy. |
+| `infralink-controller-doctor` | Read-only host-runtime check for registry, reconcile, Compose, firewall, and metrics evidence. |
+| `infralink-host doctor\|reconcile\|bootstrap --apply` | Host launcher installed from [`src/infralink_ops/assets/infralink-host`](src/infralink_ops/assets/infralink-host). |
 
-`infralink-controller-firewall render|verify` is the matching public firewall
-runtime. It receives an explicit registry root, expected registry revision,
-host UUID, and rendered Compose file; it validates the portable Infralink
-firewall declaration, renders the owned nftables table, or verifies its
-declared rules at runtime. It does not fetch Git, select a registry revision,
-resolve secrets, or apply firewall state. It grants no implicit Tailnet,
-Docker bridge, DNS, or container-egress access: every permitted listener is
-declared. Controller-owned egress-SNAT realization remains a separate runtime;
-declared container-egress support is tracked in #56.
+Each command is intentionally narrow. Commands receive explicit inputs and
+return bounded machine-readable envelopes where possible.
+
+## Authority Boundary
+
+| This repo owns | This repo does not own |
+| --- | --- |
+| Controller image build recipe. | Which registry revision a host should run. |
+| Host launcher and systemd unit assets. | Service definitions, hostnames, DNS, certificates, or image pins. |
+| Runtime primitives with bounded inputs and outputs. | Tenant or application policy. |
+| Doctor and evidence helpers. | Live-service acceptance criteria. |
+| BWS resolution primitive. | BWS secret values or registry secret declarations. |
+
+For RelayOS IRC, source/config/image repos feed the registry first:
+
+```mermaid
+flowchart LR
+    deploy["relayos-deploy docs and deploy contract"]
+    config["relayos-irc-config"]
+    modules["custom-modules"]
+    images["relayos-irc-containers"]
+    registry["infra-registry"]
+    ops["infralink-ops controller"]
+    host["managed host"]
+
+    config --> registry
+    modules --> images
+    images --> deploy
+    deploy --> registry
+    registry --> ops
+    ops --> host
+```
+
+## GHCR and BWS
+
+The controller image publishes to
+[cyberstorm-dev packages](https://github.com/orgs/cyberstorm-dev/packages) as
+`ghcr.io/cyberstorm-dev/infralink-ops-controller`.
+
+BWS access is runtime-only. This repo contains the resolver and tests for the
+resolver contract; the token and secret object names belong to the environment
+registry and host runtime.
+
+## Verify Changes
+
+Run the same checks Woodpecker runs:
+
+```bash
+python -m pip install --disable-pip-version-check -e '.[dev]'
+python -m ruff check src tests
+python -m ruff format --check src tests
+python -m pytest -q
+python -m build
+```
+
+The controller image publish step runs only on `main` pushes. Pull requests use
+Docker buildx dry-run validation.
+
+## Triage A Stale Host
+
+Check in this order:
+
+1. Confirm the environment selected the intended registry revision.
+2. Confirm `/var/lib/infralink/registry` has the expected checkout.
+3. Run `infralink-host doctor` for read-only host evidence.
+4. Inspect `/var/lib/infralink/reconcile-result.yml` as the last reconcile
+   result, not as desired state.
+5. Check whether `infralink-host-reconcile.timer` ran after the registry change.
+6. Check rendered files under `/opt/services/config`.
+7. Check the affected Compose service or application-specific behavior.
+
+Do not repair desired-state drift by editing `/opt/services` directly. Fix the
+registry or source repo that owns the value, then let the controller reconcile.
+
+## Development Contract
+
+- Keep commands agent-friendly: explicit inputs, bounded output, stable exit
+  behavior, and machine-readable evidence.
+- Keep provider-specific policy out of generic primitives unless the command
+  name says it is provider-specific.
+- Add tests for every command contract, runtime boundary, and failure mode.
+- Keep README-level docs focused on operator entrypoints; put command-specific
+  details in focused guides or tests.
