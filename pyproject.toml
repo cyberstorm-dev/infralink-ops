@@ -9,7 +9,7 @@ description = "Operational runtime for direct Infralink registry projections"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "infralink @ https://github.com/cyberstorm-dev/infralink/releases/download/v0.6.12/infralink-0.6.12-py3-none-any.whl#sha256=a70e1eeba5314ecf348357a5bf85610a507609733402380ba836a76f6b286edc",
+  "infralink @ https://github.com/cyberstorm-dev/infralink/releases/download/v0.6.13/infralink-0.6.13-py3-none-any.whl#sha256=e7379fcb489d3f7c30f8199bfbf8bd6d7ed562e6eca4eff85db313a6ff2a0566",
   "Jinja2>=3.0",
   "PyYAML>=6.0",
 ]
@@ -37,6 +37,7 @@ infralink-controller-registry-transport-trust = "infralink_ops.registry_transpor
 infralink-controller-template-dependencies = "infralink_ops.template_dependencies:cli"
 infralink-controller-template-source-dependencies = "infralink_ops.template_source_dependencies:cli"
 infralink-controller-template-render = "infralink_ops.template_renderer:cli"
+infralink-controller-artifact-bindings = "infralink_ops.typed_artifact_materializer:cli"
 infralink-controller-bootstrap = "infralink_ops.controller_bootstrap:cli"
 
 [tool.hatch.metadata]
