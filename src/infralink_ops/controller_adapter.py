@@ -9,12 +9,8 @@ from collections.abc import Sequence
 from infralink.controller_contracts import ControllerAdapterRequest, ControllerAdapterResult
 from pydantic import ValidationError
 
-_DIAGNOSTIC_LIMIT = 512
-_SAFE_DIAGNOSTIC_PREFIX = "controller reconcile:"
-_SENSITIVE_ASSIGNMENT = re.compile(
-    r"(?i)\b([a-z][a-z0-9_-]*(?:token|secret|password|credential|authorization|cookie|key)[a-z0-9_-]*)"
-    r"(\s*[:=]\s*)([^\s]+)"
-)
+_DIAGNOSTIC_CODE_PREFIX = "infralink-adapter-diagnostic: "
+_DIAGNOSTIC_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}")
 
 
 class ControllerAdapterTransportError(RuntimeError):
@@ -26,23 +22,24 @@ class ControllerAdapterTransportError(RuntimeError):
         *,
         returncode: int | None = None,
         category: str = "adapter_transport_failed",
-        summary: str | None = None,
+        diagnostic_code: str | None = None,
     ) -> None:
         super().__init__(message)
         self.returncode = returncode
         self.category = category
-        self.summary = summary
+        self.diagnostic_code = diagnostic_code
 
 
-def _redacted_stderr_summary(stderr: str) -> str | None:
-    """Return one bounded controller diagnostic without credential assignments."""
+def _diagnostic_code(stderr: str) -> str | None:
+    """Return an exact allowlisted private-adapter diagnostic code."""
 
     for line in stderr.splitlines():
         candidate = line.strip()
-        if not candidate.startswith(_SAFE_DIAGNOSTIC_PREFIX):
+        if not candidate.startswith(_DIAGNOSTIC_CODE_PREFIX):
             continue
-        candidate = _SENSITIVE_ASSIGNMENT.sub(r"\1\2[redacted]", candidate)
-        return candidate[:_DIAGNOSTIC_LIMIT]
+        code = candidate.removeprefix(_DIAGNOSTIC_CODE_PREFIX)
+        if _DIAGNOSTIC_CODE.fullmatch(code) is not None:
+            return code
     return None
 
 
@@ -74,7 +71,7 @@ def invoke_controller_adapter(
             "adapter invocation failed",
             returncode=completed.returncode,
             category="adapter_exit_nonzero",
-            summary=_redacted_stderr_summary(completed.stderr),
+            diagnostic_code=_diagnostic_code(completed.stderr),
         )
 
     try:

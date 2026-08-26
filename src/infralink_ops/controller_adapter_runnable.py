@@ -64,8 +64,8 @@ def main(argv: list[str] | None = None, *, stdin: str | None = None) -> tuple[di
         details: dict[str, Any] = {"code": error.category}
         if error.returncode is not None:
             details["exit_code"] = error.returncode
-        if error.summary is not None:
-            details["summary"] = error.summary
+        if error.diagnostic_code is not None:
+            details["diagnostic_code"] = error.diagnostic_code
         return _payload(error=details), 78
     except ValueError:
         return _payload(error={"code": "adapter_transport_failed"}), 78

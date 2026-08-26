@@ -112,15 +112,16 @@ print("not json")
     }
 
 
-def test_module_returns_redacted_nonzero_adapter_diagnostic(tmp_path: Path) -> None:
+def test_module_returns_only_allowlisted_nonzero_adapter_diagnostic(tmp_path: Path) -> None:
     adapter = tmp_path / "adapter.py"
     adapter.write_text(
         """\\
 import sys
 print(
-    "controller reconcile: configuration missing: BWS_ACCESS_TOKEN=private-token-value",
+    "configuration missing: BWS_ACCESS_TOKEN=private-token-value",
     file=sys.stderr,
 )
+print("infralink-adapter-diagnostic: declared_render_failed", file=sys.stderr)
 raise SystemExit(31)
 """,
         encoding="utf-8",
@@ -151,7 +152,7 @@ raise SystemExit(31)
         "error": {
             "code": "adapter_exit_nonzero",
             "exit_code": 31,
-            "summary": "controller reconcile: configuration missing: BWS_ACCESS_TOKEN=[redacted]",
+            "diagnostic_code": "declared_render_failed",
         },
     }
 
