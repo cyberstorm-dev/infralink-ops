@@ -134,13 +134,13 @@ raise SystemExit(7)
     assert raised.value.returncode == 7
 
 
-def test_exposes_a_bounded_redacted_adapter_failure_summary(tmp_path) -> None:
+def test_exposes_only_an_allowlisted_adapter_diagnostic_code(tmp_path) -> None:
     adapter = tmp_path / "adapter.py"
     adapter.write_text(
         """\\
 import sys
-print("controller reconcile: BWS_ACCESS_TOKEN=private-token-value", file=sys.stderr)
-print("x" * 600, file=sys.stderr)
+print("private-token-value", file=sys.stderr)
+print("infralink-adapter-diagnostic: declared_render_failed", file=sys.stderr)
 raise SystemExit(7)
 """,
         encoding="utf-8",
@@ -150,16 +150,16 @@ raise SystemExit(7)
         invoke_controller_adapter([sys.executable, str(adapter)], _request())
 
     assert raised.value.category == "adapter_exit_nonzero"
-    assert raised.value.summary == "controller reconcile: BWS_ACCESS_TOKEN=[redacted]"
-    assert "private-token-value" not in raised.value.summary
+    assert raised.value.diagnostic_code == "declared_render_failed"
 
 
-def test_does_not_surface_unstructured_adapter_stderr(tmp_path) -> None:
+def test_ignores_unstructured_or_malformed_adapter_diagnostics(tmp_path) -> None:
     adapter = tmp_path / "adapter.py"
     adapter.write_text(
         """\
 import sys
 print("private-token-value", file=sys.stderr)
+print("infralink-adapter-diagnostic: Authorization: Bearer private-token-value", file=sys.stderr)
 raise SystemExit(7)
 """,
         encoding="utf-8",
@@ -168,7 +168,7 @@ raise SystemExit(7)
     with pytest.raises(ControllerAdapterTransportError) as raised:
         invoke_controller_adapter([sys.executable, str(adapter)], _request())
 
-    assert raised.value.summary is None
+    assert raised.value.diagnostic_code is None
 
 
 def test_rejects_empty_adapter_argv() -> None:
