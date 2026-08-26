@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -8,6 +9,7 @@ from jinja2 import Environment
 
 from infralink_ops.template_renderer import (
     TemplateRenderError,
+    cli,
     load_host_configuration_bindings,
     register_generic_jinja_helpers,
     render_declared_host,
@@ -87,6 +89,99 @@ def test_renders_declared_host_with_relative_include_permissions_and_stale_prune
     assert settings.stat().st_mode & 0o777 == 0o640
     assert not stale.exists()
     assert set(result.changed_config_paths) == {"app/settings.yml", "retired.yml"}
+
+
+def test_cli_renders_the_selected_registry_revision_and_emits_changed_paths(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry, uuid = _registry(tmp_path)
+    revision = _commit_registry(registry)
+    monkeypatch.setenv("port", "8080")
+
+    status = cli(
+        [
+            "--registry",
+            str(registry),
+            "--uuid",
+            uuid,
+            "--services-dir",
+            str(tmp_path / "services"),
+            "--registry-revision",
+            revision,
+            "--resolved-images-json",
+            json.dumps({"app": "ghcr.io/example/app@sha256:" + "a" * 64}),
+        ]
+    )
+
+    assert status == 0
+    assert json.loads(capsys.readouterr().out) == {"changed_config_paths": ["app/settings.yml"]}
+
+
+def test_controller_template_renderer_is_a_released_ops_command() -> None:
+    project = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert 'infralink-controller-template-render = "infralink_ops.template_renderer:cli"' in project
+
+
+@pytest.mark.parametrize("host_ref", ["../outside", "/tmp/outside-host"])
+def test_cli_rejects_host_paths_outside_the_selected_registry(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], host_ref: str
+) -> None:
+    registry, _ = _registry(tmp_path)
+    outside = registry / "outside" if host_ref == "../outside" else tmp_path / "outside-host"
+    outside.mkdir(parents=True)
+    (outside / "manifest.yml").write_text(
+        yaml.safe_dump({"hosts": {host_ref: {"canonical_name": "outside"}}}),
+        encoding="utf-8",
+    )
+    (outside / "docker-compose.yml.j2").write_text("services: {}\n", encoding="utf-8")
+    revision = _commit_registry(registry)
+
+    services = tmp_path / "services"
+    status = cli(
+        [
+            "--registry",
+            str(registry),
+            "--uuid",
+            host_ref,
+            "--services-dir",
+            str(services),
+            "--registry-revision",
+            revision,
+        ]
+    )
+
+    assert status == 78
+    assert "host" in capsys.readouterr().err
+    assert not services.exists()
+
+
+def test_cli_rejects_an_unverified_registry_revision_before_writing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry, uuid = _registry(tmp_path)
+    _commit_registry(registry)
+    monkeypatch.setenv("port", "8080")
+    services = tmp_path / "services"
+
+    status = cli(
+        [
+            "--registry",
+            str(registry),
+            "--uuid",
+            uuid,
+            "--services-dir",
+            str(services),
+            "--registry-revision",
+            "0" * 40,
+            "--resolved-images-json",
+            json.dumps({"app": "ghcr.io/example/app@sha256:" + "a" * 64}),
+        ]
+    )
+
+    assert status == 78
+    assert "registry" in capsys.readouterr().err
+    assert not services.exists()
 
 
 def test_rejects_non_immutable_resolved_image_before_writing(tmp_path: Path) -> None:
