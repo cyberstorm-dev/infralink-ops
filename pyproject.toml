@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "infralink-ops"
-version = "0.2.59"
+version = "0.2.60"
 description = "Operational runtime for direct Infralink registry projections"
 readme = "README.md"
 requires-python = ">=3.10"
