@@ -48,8 +48,8 @@ def invoke_controller_adapter(
 ) -> ControllerAdapterResult:
     """Run a fixed adapter argv and validate its JSON result contract.
 
-    Adapter diagnostics are intentionally not copied into the exception because
-    their implementation belongs to the private environment boundary.
+    Only an allowlisted diagnostic code may cross the private adapter boundary;
+    adapter text remains private.
     """
 
     if not adapter_argv:
