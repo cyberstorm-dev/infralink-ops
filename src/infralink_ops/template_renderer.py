@@ -7,9 +7,11 @@ checkout into controller-owned files.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
+import sys
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -24,6 +26,7 @@ from infralink_ops.declared_file_destination import (
     DeclaredFileDestinationError,
     repair_empty_declared_file_destination,
 )
+from infralink_ops.registry_checkout import RegistryCheckoutError, verify_registry_revision
 from infralink_ops.template_sources import (
     DeclaredTemplateSourceLoader,
     TemplateSourceError,
@@ -76,7 +79,7 @@ def validate_resolved_images(value: object) -> dict[str, str]:
 
 
 def load_host(registry: Path, host_id: str) -> dict[str, object]:
-    manifest = registry / "hosts" / host_id / "manifest.yml"
+    manifest = _host_directory(registry, host_id) / "manifest.yml"
     try:
         data = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as error:
@@ -85,6 +88,16 @@ def load_host(registry: Path, host_id: str) -> dict[str, object]:
     host = hosts.get(host_id) if isinstance(hosts, dict) else None
     if not isinstance(host, dict):
         raise TemplateRenderError(f"host manifest does not declare {host_id}")
+    return host
+
+
+def _host_directory(registry: Path, host_id: str) -> Path:
+    """Return a declared host directory without allowing Registry escapes."""
+
+    hosts = (registry.resolve() / "hosts").resolve()
+    host = (hosts / host_id).resolve()
+    if host.parent != hosts:
+        raise TemplateRenderError(f"host manifest is invalid: {host_id}")
     return host
 
 
@@ -189,7 +202,7 @@ def render_declared_host(
     """
 
     registry = registry.resolve()
-    host_dir = registry / "hosts" / host_id
+    host_dir = _host_directory(registry, host_id)
     host = load_host(registry, host_id)
     images = validate_resolved_images(dict(resolved_images))
     permissions = load_rendered_config_permissions(host)
@@ -252,6 +265,34 @@ def render_declared_host(
         json.dumps(sorted(desired_paths), separators=(",", ":")).encode("utf-8"),
     )
     return TemplateRenderResult(tuple(changed_paths), compose_changed)
+
+
+def cli(argv: list[str] | None = None) -> int:
+    """Render one checked-out host declaration for the controller runtime."""
+
+    parser = argparse.ArgumentParser(prog="infralink-controller-template-render")
+    parser.add_argument("--registry", required=True, type=Path)
+    parser.add_argument("--uuid", required=True)
+    parser.add_argument("--services-dir", required=True, type=Path)
+    parser.add_argument("--registry-revision", required=True)
+    parser.add_argument("--resolved-images-json", default="{}")
+    arguments = parser.parse_args(argv)
+    try:
+        checkout = verify_registry_revision(
+            arguments.registry, expected_revision=arguments.registry_revision
+        )
+        result = render_declared_host(
+            registry=checkout.root,
+            host_id=arguments.uuid,
+            services_dir=arguments.services_dir,
+            expected_registry_revision=arguments.registry_revision,
+            resolved_images=load_resolved_images(arguments.resolved_images_json),
+        )
+    except (RegistryCheckoutError, TemplateRenderError) as error:
+        print(f"controller template render: {error}", file=sys.stderr)
+        return 78
+    print(json.dumps({"changed_config_paths": list(result.changed_config_paths)}, sort_keys=True))
+    return 0
 
 
 def load_rendered_config_permissions(
