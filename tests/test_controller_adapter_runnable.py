@@ -112,6 +112,50 @@ print("not json")
     }
 
 
+def test_module_returns_redacted_nonzero_adapter_diagnostic(tmp_path: Path) -> None:
+    adapter = tmp_path / "adapter.py"
+    adapter.write_text(
+        """\\
+import sys
+print(
+    "controller reconcile: configuration missing: BWS_ACCESS_TOKEN=private-token-value",
+    file=sys.stderr,
+)
+raise SystemExit(31)
+""",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "infralink_ops.controller_adapter_runnable",
+            "invoke",
+            "--adapter",
+            sys.executable,
+            "--adapter-arg",
+            str(adapter),
+        ],
+        input=json.dumps(_request()),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 78
+    assert "private-token-value" not in completed.stdout
+    assert json.loads(completed.stdout) == {
+        "schema_version": "infralink.ops.controller-adapter-transport/v1",
+        "ok": False,
+        "error": {
+            "code": "adapter_exit_nonzero",
+            "exit_code": 31,
+            "summary": "controller reconcile: configuration missing: BWS_ACCESS_TOKEN=[redacted]",
+        },
+    }
+
+
 def test_module_rejects_invalid_request_before_starting_adapter(tmp_path: Path) -> None:
     marker = tmp_path / "adapter-ran"
     adapter = tmp_path / "adapter.py"

@@ -134,6 +134,43 @@ raise SystemExit(7)
     assert raised.value.returncode == 7
 
 
+def test_exposes_a_bounded_redacted_adapter_failure_summary(tmp_path) -> None:
+    adapter = tmp_path / "adapter.py"
+    adapter.write_text(
+        """\\
+import sys
+print("controller reconcile: BWS_ACCESS_TOKEN=private-token-value", file=sys.stderr)
+print("x" * 600, file=sys.stderr)
+raise SystemExit(7)
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ControllerAdapterTransportError) as raised:
+        invoke_controller_adapter([sys.executable, str(adapter)], _request())
+
+    assert raised.value.category == "adapter_exit_nonzero"
+    assert raised.value.summary == "controller reconcile: BWS_ACCESS_TOKEN=[redacted]"
+    assert "private-token-value" not in raised.value.summary
+
+
+def test_does_not_surface_unstructured_adapter_stderr(tmp_path) -> None:
+    adapter = tmp_path / "adapter.py"
+    adapter.write_text(
+        """\
+import sys
+print("private-token-value", file=sys.stderr)
+raise SystemExit(7)
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ControllerAdapterTransportError) as raised:
+        invoke_controller_adapter([sys.executable, str(adapter)], _request())
+
+    assert raised.value.summary is None
+
+
 def test_rejects_empty_adapter_argv() -> None:
     with pytest.raises(ValueError, match="must not be empty"):
         invoke_controller_adapter([], _request())

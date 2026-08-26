@@ -25,7 +25,9 @@ class EnvelopeParser(argparse.ArgumentParser):
         raise ValueError(message)
 
 
-def _payload(*, result: dict[str, Any] | None = None, error: str | None = None) -> dict[str, Any]:
+def _payload(
+    *, result: dict[str, Any] | None = None, error: dict[str, Any] | None = None
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "ok": error is None,
@@ -33,7 +35,7 @@ def _payload(*, result: dict[str, Any] | None = None, error: str | None = None) 
     if error is None:
         payload["result"] = result
     else:
-        payload["error"] = {"code": error}
+        payload["error"] = error
     return payload
 
 
@@ -48,18 +50,25 @@ def main(argv: list[str] | None = None, *, stdin: str | None = None) -> tuple[di
     try:
         arguments = parser.parse_args(argv)
     except (SystemExit, ValueError):
-        return _payload(error="usage_error"), 64
+        return _payload(error={"code": "usage_error"}), 64
 
     request_body = sys.stdin.read() if stdin is None else stdin
     try:
         request = ControllerAdapterRequest.model_validate_json(request_body)
     except (ValidationError, ValueError):
-        return _payload(error="request_invalid"), 64
+        return _payload(error={"code": "request_invalid"}), 64
 
     try:
         result = invoke_controller_adapter([arguments.adapter, *arguments.adapter_arg], request)
-    except (ControllerAdapterTransportError, ValueError):
-        return _payload(error="adapter_transport_failed"), 78
+    except ControllerAdapterTransportError as error:
+        details: dict[str, Any] = {"code": error.category}
+        if error.returncode is not None:
+            details["exit_code"] = error.returncode
+        if error.summary is not None:
+            details["summary"] = error.summary
+        return _payload(error=details), 78
+    except ValueError:
+        return _payload(error={"code": "adapter_transport_failed"}), 78
     return _payload(result=result.model_dump(mode="json")), 0
 
 
