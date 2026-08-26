@@ -7,13 +7,14 @@ import os
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from infralink_ops.declared_file_destination import (
     DeclaredFileDestinationError,
     repair_empty_declared_file_destination,
 )
+from infralink_ops.stable_regular_file import StableRegularFileError, read_stable_regular_file
 
 
 class ArtifactInstallError(ValueError):
@@ -42,10 +43,13 @@ def read_declared_artifact(registry: Path, declaration: Mapping[str, object]) ->
     path, expected = source.get("path"), source.get("sha256")
     if not isinstance(path, str) or not isinstance(expected, str) or len(expected) != 64:
         raise ArtifactInstallError("declared artifact source is malformed")
-    candidate = (registry / path).resolve()
-    if registry.resolve() not in candidate.parents or not candidate.is_file():
+    relative = PurePosixPath(path)
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
         raise ArtifactInstallError("declared artifact source is unavailable")
-    body = candidate.read_bytes()
+    try:
+        body = read_stable_regular_file(registry.joinpath(*relative.parts))
+    except StableRegularFileError as error:
+        raise ArtifactInstallError("declared artifact source is unavailable") from error
     if hashlib.sha256(body).hexdigest() != expected:
         raise ArtifactInstallError("declared artifact source digest mismatch")
     return DeclaredArtifact(body=body, source_path=path, sha256=expected)

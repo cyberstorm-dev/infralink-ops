@@ -38,6 +38,7 @@ infralink-controller-template-dependencies = "infralink_ops.template_dependencie
 infralink-controller-template-source-dependencies = "infralink_ops.template_source_dependencies:cli"
 infralink-controller-template-render = "infralink_ops.template_renderer:cli"
 infralink-controller-artifact-bindings = "infralink_ops.typed_artifact_materializer:cli"
+infralink-controller-artifacts = "infralink_ops.controller_artifacts:cli"
 infralink-controller-bootstrap = "infralink_ops.controller_bootstrap:cli"
 
 [tool.hatch.metadata]
