@@ -12,11 +12,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-import yaml
 from infralink.observation import (
-    ObservationV2Document,
+    ObservationSource,
     PlannedArtifactBinding,
-    plan_v2_artifact_bindings,
+    ProjectValidationError,
+    project_v2_artifact_bindings_from_bytes,
 )
 
 from infralink_ops.artifact_target_install import ArtifactTargetError, install_artifact_body
@@ -66,7 +66,7 @@ def materialize_v2_artifact_bindings(
     root = checkout.root
     services_root = _services_root(services_dir)
     paths = _validated_catalog_sources(root, source_paths)
-    bindings = _project_stable_artifact_bindings(paths)
+    bindings = _project_stable_artifact_bindings(root, paths)
     writes = _plan_host_writes(root, services_root, host_id, bindings)
     _preflight_write_targets(services_root, writes)
 
@@ -152,21 +152,20 @@ def _validated_catalog_sources(root: Path, values: Sequence[Path]) -> tuple[Path
 
 
 def _project_stable_artifact_bindings(
+    root: Path,
     paths: Sequence[Path],
 ) -> tuple[PlannedArtifactBinding, ...]:
-    documents: list[ObservationV2Document] = []
+    sources: list[ObservationSource] = []
     for path in paths:
         try:
             body = read_stable_regular_file(path)
-            value = yaml.safe_load(body)
-            if not isinstance(value, dict):
-                raise ValueError
-            documents.append(ObservationV2Document.model_validate_json(json.dumps(value)))
-        except (StableRegularFileError, ValueError, yaml.YAMLError) as error:
+            relative = path.relative_to(root).as_posix()
+        except (StableRegularFileError, ValueError) as error:
             raise TypedArtifactMaterializationError("V2 artifact source is unavailable") from error
+        sources.append(ObservationSource(path=relative, body=body))
     try:
-        return tuple(plan_v2_artifact_bindings(documents))
-    except ValueError as error:
+        return tuple(project_v2_artifact_bindings_from_bytes(sources).artifact_bindings)
+    except ProjectValidationError as error:
         raise TypedArtifactMaterializationError("v2 artifact bindings are invalid") from error
 
 
