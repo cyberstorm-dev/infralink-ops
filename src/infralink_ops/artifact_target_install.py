@@ -29,7 +29,7 @@ def _open_directory(path: Path) -> int:
         or any(component in {"", ".", ".."} for component in path.parts[1:])
     ):
         raise ArtifactTargetError("artifact directory is unsafe")
-    descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    descriptor: int | None = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
     try:
         for component in path.parts[1:]:
             successor = os.open(
@@ -43,6 +43,36 @@ def _open_directory(path: Path) -> int:
     except OSError as error:
         os.close(descriptor)
         raise ArtifactTargetError("artifact directory is unsafe") from error
+
+
+def ensure_artifact_directory(path: Path) -> None:
+    """Create an absolute directory tree without following any component."""
+    if not path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts[1:]):
+        raise ArtifactTargetError("artifact directory is unsafe")
+    descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        for component in path.parts[1:]:
+            try:
+                successor = os.open(
+                    component,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    dir_fd=descriptor,
+                )
+            except FileNotFoundError:
+                os.mkdir(component, 0o755, dir_fd=descriptor)
+                successor = os.open(
+                    component,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    dir_fd=descriptor,
+                )
+            os.close(descriptor)
+            descriptor = None
+            descriptor = successor
+    except OSError as error:
+        raise ArtifactTargetError("artifact directory is unsafe") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
 
 
 def _read_regular(parent_fd: int, name: str) -> tuple[bytes, os.stat_result]:
