@@ -109,12 +109,39 @@ def _plan_writes(registry: Path, deployment: dict[str, Any], services_dir: Path)
     return writes
 
 
-def apply(*, registry: Path, registry_revision: str, host_id: str, services_dir: Path) -> list[str]:
-    """Install generic generated artifacts from exactly one Registry revision."""
+def _plan(
+    *, registry: Path, registry_revision: str, host_id: str, services_dir: Path
+) -> list[_Write]:
+    """Return validated generic artifact writes from exactly one Registry revision."""
 
     checkout = verify_registry_revision(registry, expected_revision=registry_revision)
     deployment = _deployment(checkout.root, host_id)
-    writes = _plan_writes(checkout.root, deployment, services_dir)
+    return _plan_writes(checkout.root, deployment, services_dir)
+
+
+def plan(*, registry: Path, registry_revision: str, host_id: str, services_dir: Path) -> list[str]:
+    """Validate generic artifacts against one services directory without writing."""
+
+    return [
+        write.relative_path
+        for write in _plan(
+            registry=registry,
+            registry_revision=registry_revision,
+            host_id=host_id,
+            services_dir=services_dir,
+        )
+    ]
+
+
+def apply(*, registry: Path, registry_revision: str, host_id: str, services_dir: Path) -> list[str]:
+    """Install generic generated artifacts from exactly one Registry revision."""
+
+    writes = _plan(
+        registry=registry,
+        registry_revision=registry_revision,
+        host_id=host_id,
+        services_dir=services_dir,
+    )
     changed: list[str] = []
     for write in writes:
         try:
@@ -152,7 +179,7 @@ def _payload(
 
 def main(argv: list[str] | None = None) -> tuple[dict[str, object], int]:
     parser = EnvelopeParser(prog="infralink-controller-artifacts")
-    parser.add_argument("command", choices=("apply",))
+    parser.add_argument("command", choices=("apply", "plan"))
     parser.add_argument("--registry", required=True, type=Path)
     parser.add_argument("--registry-revision", required=True)
     parser.add_argument("--uuid", required=True)
@@ -162,6 +189,14 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, object], int]:
     except ControllerArtifactsError as error:
         return _payload(command=None, error=str(error)), 64
     try:
+        if arguments.command == "plan":
+            paths = plan(
+                registry=arguments.registry,
+                registry_revision=arguments.registry_revision,
+                host_id=arguments.uuid,
+                services_dir=arguments.services_dir,
+            )
+            return _payload(command="plan", result={"config_paths": paths}), 0
         changed = apply(
             registry=arguments.registry,
             registry_revision=arguments.registry_revision,
@@ -170,7 +205,9 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, object], int]:
         )
         return _payload(command="apply", result={"changed_config_paths": changed}), 0
     except (ControllerArtifactsError, RegistryCheckoutError):
-        return _payload(command="apply", error="generated_artifact_materialization_failed"), 78
+        return _payload(
+            command=arguments.command, error="generated_artifact_materialization_failed"
+        ), 78
 
 
 def cli() -> int:
