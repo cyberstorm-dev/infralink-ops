@@ -3,8 +3,8 @@
 ## BLUF
 
 This repo packages the public controller runtime for managed hosts. Deployment
-intent, private templates, secret aliases, and environment acceptance remain in
-the environment registry rather than this package.
+intent, private templates, and secret aliases remain in the environment
+registry; live-service acceptance remains environment-owned operational state.
 
 Use it when you need bounded host primitives for registry checkout, template
 rendering, config projection, Docker image retention, Compose consumer
