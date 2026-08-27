@@ -97,12 +97,19 @@ registry and host runtime.
 Run the same checks Woodpecker runs:
 
 ```bash
+python -m pip install --disable-pip-version-check \
+  'infralink @ https://github.com/cyberstorm-dev/infralink/releases/download/v0.6.14/infralink-0.6.14-py3-none-any.whl#sha256=e41e16e082df50d7506785feb40dc3ea48087d46c391e31f2bd77e3ef81ce0e3'
 python -m pip install --disable-pip-version-check -e '.[dev]'
 python -m ruff check src tests
 python -m ruff format --check src tests
 python -m pytest -q
 python -m build
 ```
+
+Infralink Ops declares compatibility with Infralink `>=0.6,<0.7`. Until
+Infralink is published to PyPI, bootstrap a released, checksum-pinned wheel
+before installing Ops so a clean environment does not attempt an unavailable
+index resolution.
 
 The controller image publish step runs only on `main` pushes. Pull requests use
 Docker buildx dry-run validation.
