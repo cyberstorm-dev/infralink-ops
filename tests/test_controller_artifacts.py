@@ -79,6 +79,57 @@ def test_apply_materializes_only_generic_declared_artifacts(tmp_path: Path) -> N
     ).read_text() == "value: declared\n"
 
 
+def test_plan_validates_live_generic_artifact_destinations_without_writing(tmp_path: Path) -> None:
+    registry, revision = _registry(tmp_path)
+    services = tmp_path / "services"
+
+    payload, status = main(
+        [
+            "plan",
+            "--registry",
+            str(registry),
+            "--registry-revision",
+            revision,
+            "--uuid",
+            HOST_ID,
+            "--services-dir",
+            str(services),
+        ]
+    )
+
+    assert status == 0
+    assert payload["ok"] is True
+    assert payload["result"] == {"config_paths": ["example/config.yml"]}
+    assert not services.exists()
+
+
+def test_plan_rejects_a_symlinked_live_destination_without_writing(tmp_path: Path) -> None:
+    registry, revision = _registry(tmp_path)
+    services = tmp_path / "services"
+    destination = services / "config" / "example" / "config.yml"
+    destination.parent.mkdir(parents=True)
+    destination.symlink_to(tmp_path / "outside")
+
+    payload, status = main(
+        [
+            "plan",
+            "--registry",
+            str(registry),
+            "--registry-revision",
+            revision,
+            "--uuid",
+            HOST_ID,
+            "--services-dir",
+            str(services),
+        ]
+    )
+
+    assert status == 78
+    assert payload["command"] == {"path": ["plan"]}
+    assert payload["error"] == {"code": "generated_artifact_materialization_failed"}
+    assert destination.is_symlink()
+
+
 def test_apply_rejects_a_different_registry_revision(tmp_path: Path) -> None:
     registry, _ = _registry(tmp_path)
     payload, status = main(
