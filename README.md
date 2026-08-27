@@ -2,7 +2,9 @@
 
 ## BLUF
 
-This repo packages private controller-runtime helpers for managed hosts.
+This repo packages the public controller runtime for managed hosts. Deployment
+intent, private templates, secret aliases, and environment acceptance remain in
+the environment registry rather than this package.
 
 Use it when you need bounded host primitives for registry checkout, template
 rendering, config projection, Docker image retention, Compose consumer

@@ -2,7 +2,7 @@
 
 ## BLUF
 
-Use this guide to understand what the private host controller can do and what
+Use this guide to understand what the host controller can do and what
 evidence it can produce.
 
 The controller applies a registry revision that another layer selected. It does
