@@ -2,10 +2,12 @@
 
 from pathlib import Path
 
+import tomllib
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "publish-pypi.yml"
+PYPROJECT = PROJECT_ROOT / "pyproject.toml"
 
 
 def load_workflow() -> dict[str, object]:
@@ -66,3 +68,10 @@ def test_testpypi_dispatch_can_resolve_testpypi_infralink_dependency() -> None:
             f"${{{{ github.event_name == 'workflow_dispatch' && '{testpypi_index}' || '' }}}}"
         )
     }
+
+
+def test_pypi_workflow_validation_tool_is_a_dev_dependency() -> None:
+    with PYPROJECT.open("rb") as source:
+        project = tomllib.load(source)
+
+    assert "twine>=6.0" in project["project"]["optional-dependencies"]["dev"]

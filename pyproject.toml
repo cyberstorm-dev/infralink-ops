@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["build>=1.2", "pytest>=8.0", "ruff>=0.6"]
+dev = ["build>=1.2", "pytest>=8.0", "ruff>=0.6", "twine>=6.0"]
 
 [project.scripts]
 infralink-ops = "infralink_ops.cli:run"
