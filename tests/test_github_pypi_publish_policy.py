@@ -75,3 +75,10 @@ def test_pypi_workflow_validation_tool_is_a_dev_dependency() -> None:
         project = tomllib.load(source)
 
     assert "twine>=6.0" in project["project"]["optional-dependencies"]["dev"]
+
+
+def test_pypi_workflow_installs_its_validator_for_existing_release_tags() -> None:
+    workflow = load_workflow()
+    install_step = workflow["jobs"]["build"]["steps"][2]
+
+    assert "twine>=6.0" in install_step["run"]
