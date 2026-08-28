@@ -116,6 +116,67 @@ def test_write_failure_replaces_stale_success_with_a_bounded_reason(tmp_path: Pa
     assert "registry_checkout_failed" not in metrics
 
 
+def test_write_failure_records_a_strict_adapter_failure_summary(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    textfile_dir = tmp_path / "textfiles"
+    runtime_root.mkdir()
+    textfile_dir.mkdir()
+
+    completed = run_evidence(
+        "write-failure",
+        "--runtime-root",
+        str(runtime_root),
+        "--textfile-directory",
+        str(textfile_dir),
+        "--host-uuid",
+        HOST_UUID,
+        "--reason-code",
+        "template_render_failed",
+        "--failure-details-json",
+        '{"stage":"adapter","exit_code":78,"diagnostic_code":"template_render_failed"}',
+        "--observed-at",
+        OBSERVED_AT,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    record = yaml.safe_load((runtime_root / "reconcile-result.yml").read_text())
+    assert record["failure"] == {
+        "stage": "adapter",
+        "exit_code": 78,
+        "diagnostic_code": "template_render_failed",
+    }
+
+
+def test_write_failure_rejects_raw_adapter_stderr_without_mutating_evidence(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    textfile_dir = tmp_path / "textfiles"
+    runtime_root.mkdir()
+    textfile_dir.mkdir()
+    evidence_path = runtime_root / "reconcile-result.yml"
+    evidence_path.write_text("status: success\n", encoding="utf-8")
+
+    completed = run_evidence(
+        "write-failure",
+        "--runtime-root",
+        str(runtime_root),
+        "--textfile-directory",
+        str(textfile_dir),
+        "--host-uuid",
+        HOST_UUID,
+        "--reason-code",
+        "controller_adapter_failed",
+        "--failure-details-json",
+        '{"stage":"adapter","exit_code":78,"stderr":"secret-like-value"}',
+        "--observed-at",
+        OBSERVED_AT,
+    )
+
+    assert completed.returncode == 64
+    envelope = yaml.safe_load(completed.stdout)
+    assert envelope["error"] == {"code": "failure_details_invalid"}
+    assert evidence_path.read_text(encoding="utf-8") == "status: success\n"
+
+
 def test_write_failure_rejects_unbounded_reason_without_mutating_evidence(tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime"
     textfile_dir = tmp_path / "textfiles"
