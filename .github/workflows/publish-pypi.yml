@@ -30,7 +30,7 @@ jobs:
       - name: Install release dependencies
         env:
           PIP_EXTRA_INDEX_URL: ${{ github.event_name == 'workflow_dispatch' && 'https://test.pypi.org/simple' || '' }}
-        run: python -m pip install --disable-pip-version-check -e ".[dev]"
+        run: python -m pip install --disable-pip-version-check "twine>=6.0" -e ".[dev]"
       - name: Verify release tag
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
