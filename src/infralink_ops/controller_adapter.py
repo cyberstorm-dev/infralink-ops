@@ -91,7 +91,10 @@ def invoke_controller_adapter(
 
     if completed.returncode != 0:
         if diagnostic_file is not None:
-            _write_diagnostic(diagnostic_file, completed.stderr)
+            try:
+                _write_diagnostic(diagnostic_file, completed.stderr)
+            except OSError:
+                pass
         raise ControllerAdapterTransportError(
             "adapter invocation failed",
             returncode=completed.returncode,
