@@ -134,6 +134,50 @@ raise SystemExit(7)
     assert raised.value.returncode == 7
 
 
+def test_writes_opt_in_adapter_diagnostic_file_without_exposing_it(tmp_path) -> None:
+    adapter = tmp_path / "adapter.py"
+    diagnostic_file = tmp_path / "adapter.stderr"
+    adapter.write_text(
+        """\\
+import sys
+print("private-token-value", file=sys.stderr)
+raise SystemExit(7)
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ControllerAdapterTransportError) as raised:
+        invoke_controller_adapter(
+            [sys.executable, str(adapter)], _request(), diagnostic_file=diagnostic_file
+        )
+
+    assert diagnostic_file.read_text(encoding="utf-8") == "private-token-value\n"
+    assert diagnostic_file.stat().st_mode & 0o777 == 0o600
+    assert "private-token-value" not in str(raised.value)
+
+
+def test_diagnostic_write_failure_does_not_mask_adapter_failure(tmp_path) -> None:
+    adapter = tmp_path / "adapter.py"
+    adapter.write_text(
+        """\\
+import sys
+print("private-token-value", file=sys.stderr)
+raise SystemExit(7)
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ControllerAdapterTransportError) as raised:
+        invoke_controller_adapter(
+            [sys.executable, str(adapter)],
+            _request(),
+            diagnostic_file=tmp_path / "missing" / "adapter.stderr",
+        )
+
+    assert raised.value.returncode == 7
+    assert "private-token-value" not in str(raised.value)
+
+
 def test_exposes_only_an_allowlisted_adapter_diagnostic_code(tmp_path) -> None:
     adapter = tmp_path / "adapter.py"
     adapter.write_text(

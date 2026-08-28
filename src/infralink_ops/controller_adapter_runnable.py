@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 from infralink.controller_contracts import ControllerAdapterRequest
@@ -47,6 +48,7 @@ def main(argv: list[str] | None = None, *, stdin: str | None = None) -> tuple[di
     invoke = commands.add_parser("invoke")
     invoke.add_argument("--adapter", required=True)
     invoke.add_argument("--adapter-arg", action="append", default=[])
+    invoke.add_argument("--diagnostic-file", type=Path)
     try:
         arguments = parser.parse_args(argv)
     except (SystemExit, ValueError):
@@ -59,7 +61,11 @@ def main(argv: list[str] | None = None, *, stdin: str | None = None) -> tuple[di
         return _payload(error={"code": "request_invalid"}), 64
 
     try:
-        result = invoke_controller_adapter([arguments.adapter, *arguments.adapter_arg], request)
+        result = invoke_controller_adapter(
+            [arguments.adapter, *arguments.adapter_arg],
+            request,
+            diagnostic_file=arguments.diagnostic_file,
+        )
     except ControllerAdapterTransportError as error:
         details: dict[str, Any] = {"code": error.category}
         if error.returncode is not None:

@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import re
 import subprocess
+import tempfile
 from collections.abc import Sequence
+from pathlib import Path
 
 from infralink.controller_contracts import ControllerAdapterRequest, ControllerAdapterResult
 from pydantic import ValidationError
 
 _DIAGNOSTIC_CODE_PREFIX = "infralink-adapter-diagnostic: "
 _DIAGNOSTIC_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+_MAX_DIAGNOSTIC_BYTES = 64 * 1024
 
 
 class ControllerAdapterTransportError(RuntimeError):
@@ -43,8 +46,28 @@ def _diagnostic_code(stderr: str) -> str | None:
     return None
 
 
+def _write_diagnostic(path: Path, stderr: str) -> None:
+    """Atomically retain bounded private stderr outside the public envelope."""
+
+    content = stderr.encode("utf-8", errors="surrogateescape")
+    if len(content) > _MAX_DIAGNOSTIC_BYTES:
+        content = b"[truncated to final 65536 bytes]\n" + content[-_MAX_DIAGNOSTIC_BYTES:]
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with open(descriptor, "wb", closefd=True) as handle:
+            handle.write(content)
+            handle.flush()
+        Path(temporary).chmod(0o600)
+        Path(temporary).replace(path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
 def invoke_controller_adapter(
-    adapter_argv: Sequence[str], request: ControllerAdapterRequest
+    adapter_argv: Sequence[str],
+    request: ControllerAdapterRequest,
+    *,
+    diagnostic_file: Path | None = None,
 ) -> ControllerAdapterResult:
     """Run a fixed adapter argv and validate its JSON result contract.
 
@@ -67,6 +90,11 @@ def invoke_controller_adapter(
         raise ControllerAdapterTransportError("adapter could not be started") from error
 
     if completed.returncode != 0:
+        if diagnostic_file is not None:
+            try:
+                _write_diagnostic(diagnostic_file, completed.stderr)
+            except OSError:
+                pass
         raise ControllerAdapterTransportError(
             "adapter invocation failed",
             returncode=completed.returncode,
