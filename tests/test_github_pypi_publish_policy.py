@@ -63,7 +63,6 @@ def test_testpypi_dispatch_can_resolve_testpypi_infralink_dependency() -> None:
 
     assert install_step["env"] == {
         "PIP_EXTRA_INDEX_URL": (
-            "${{ github.event_name == 'workflow_dispatch' && "
-            f"'{testpypi_index}' || '' }}}}"
+            f"${{{{ github.event_name == 'workflow_dispatch' && '{testpypi_index}' || '' }}}}"
         )
     }
