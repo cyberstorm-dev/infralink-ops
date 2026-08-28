@@ -157,6 +157,42 @@ raise SystemExit(31)
     }
 
 
+def test_module_writes_private_stderr_only_to_explicit_diagnostic_file(tmp_path: Path) -> None:
+    adapter = tmp_path / "adapter.py"
+    diagnostic_file = tmp_path / "adapter.stderr"
+    adapter.write_text(
+        """\\
+import sys
+print("private-token-value", file=sys.stderr)
+raise SystemExit(31)
+""",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "infralink_ops.controller_adapter_runnable",
+            "invoke",
+            "--adapter",
+            sys.executable,
+            "--adapter-arg",
+            str(adapter),
+            "--diagnostic-file",
+            str(diagnostic_file),
+        ],
+        input=json.dumps(_request()),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 78
+    assert "private-token-value" not in completed.stdout
+    assert diagnostic_file.read_text(encoding="utf-8") == "private-token-value\n"
+
+
 def test_module_rejects_invalid_request_before_starting_adapter(tmp_path: Path) -> None:
     marker = tmp_path / "adapter-ran"
     adapter = tmp_path / "adapter.py"
