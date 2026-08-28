@@ -28,6 +28,8 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install release dependencies
+        env:
+          PIP_EXTRA_INDEX_URL: ${{ github.event_name == 'workflow_dispatch' && 'https://test.pypi.org/simple' || '' }}
         run: python -m pip install --disable-pip-version-check -e ".[dev]"
       - name: Verify release tag
         env:

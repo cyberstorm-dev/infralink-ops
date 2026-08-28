@@ -54,3 +54,12 @@ def test_pypi_workflow_uses_only_oidc_publishing_credentials() -> None:
         jobs["publish-testpypi"]["steps"][-1]["with"]["repository-url"]
         == "https://test.pypi.org/legacy/"
     )
+
+
+def test_testpypi_dispatch_can_resolve_testpypi_infralink_dependency() -> None:
+    workflow = load_workflow()
+    install_step = workflow["jobs"]["build"]["steps"][2]
+
+    assert install_step["env"] == {
+        "PIP_EXTRA_INDEX_URL": "${{ github.event_name == 'workflow_dispatch' && 'https://test.pypi.org/simple' || '' }}"
+    }
