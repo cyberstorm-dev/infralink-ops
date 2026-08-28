@@ -114,6 +114,28 @@ def _validated_image_cache(value: str) -> dict[str, str]:
     return result
 
 
+def _validated_failure_details(value: str | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    details = _json_mapping(value, "failure_details_invalid")
+    if set(details) != {"stage", "exit_code", "diagnostic_code"}:
+        raise EvidenceError("failure_details_invalid")
+    if details["stage"] != "adapter":
+        raise EvidenceError("failure_details_invalid")
+    if (
+        not isinstance(details["exit_code"], int)
+        or isinstance(details["exit_code"], bool)
+        or not 1 <= details["exit_code"] <= 255
+    ):
+        raise EvidenceError("failure_details_invalid")
+    if (
+        not isinstance(details["diagnostic_code"], str)
+        or _REASON_CODE.fullmatch(details["diagnostic_code"]) is None
+    ):
+        raise EvidenceError("failure_details_invalid")
+    return details
+
+
 def _payload(
     command: str | None, *, result: dict[str, Any] | None = None, error: str | None = None
 ) -> dict[str, Any]:
@@ -167,6 +189,7 @@ def write_failure(args: argparse.Namespace) -> dict[str, Any]:
     _validate_common(args)
     if _REASON_CODE.fullmatch(args.reason_code) is None:
         raise EvidenceError("reason_code_invalid")
+    failure_details = _validated_failure_details(args.failure_details_json)
     record = {
         "schema_version": "infralink.controller-reconcile/v2",
         "status": "failure",
@@ -174,6 +197,8 @@ def write_failure(args: argparse.Namespace) -> dict[str, Any]:
         "reason_code": args.reason_code,
         "observed_at": args.observed_at,
     }
+    if failure_details is not None:
+        record["failure"] = failure_details
     evidence_path = args.runtime_root / "reconcile-result.yml"
     metrics_path = args.textfile_directory / "infralink-controller-reconcile.prom"
     try:
@@ -208,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     failure.add_argument("--textfile-directory", required=True, type=Path)
     failure.add_argument("--host-uuid", required=True)
     failure.add_argument("--reason-code", required=True)
+    failure.add_argument("--failure-details-json")
     failure.add_argument("--observed-at", required=True)
     try:
         args = parser.parse_args(argv)
