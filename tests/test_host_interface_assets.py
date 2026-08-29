@@ -33,6 +33,7 @@ def test_host_interface_assets_are_packaged_with_canonical_runtime_contract() ->
     )
     assert "-e INFRALINK_GATUS_URL" in operator_cli_source
     assert "-e INFRALINK_GATUS_TOKEN" in operator_cli_source
+    assert "-e INFRALINK_CONTROLLER_IMAGE" in operator_cli_source
     assert "/var/lib/infralink/registry" in launcher.read_text(encoding="utf-8")
     assert "--pull always" in launcher.read_text(encoding="utf-8")
     launcher_source = launcher.read_text(encoding="utf-8")

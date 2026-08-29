@@ -60,6 +60,7 @@ docker pull "$image" >&2
 
 exec docker run --rm -i --pull never --network=host \
     -e INFRALINK_HOST_UUID \
+    -e INFRALINK_CONTROLLER_IMAGE \
     -e INFRALINK_REGISTRY=/var/lib/infralink/registry \
     -e INFRALINK_EDGES=/var/lib/infralink/registry/network/main-dev/edges/edges.yml \
     -e INFRALINK_OBSERVATION_PLAN=/var/lib/infralink/registry/operations/observation/core-plan.json \
