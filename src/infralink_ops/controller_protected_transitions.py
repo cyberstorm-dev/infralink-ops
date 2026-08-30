@@ -156,6 +156,7 @@ def validate(
             after, canonical_after = _declared_identity(transition.get("after"))
             declared[service] = (before, after, canonical_before, canonical_after)
         evidence: list[dict[str, object]] = []
+        representation_equivalent: list[dict[str, object]] = []
         for service in protected:
             component = components.get(service)
             if not isinstance(component, dict):
@@ -167,13 +168,29 @@ def validate(
             current = _live_identity(docker, compose, service)
             if current is None or current == desired:
                 continue
+            if current["resolved"] == desired["resolved"]:
+                representation_equivalent.append(
+                    {
+                        "service": service,
+                        "configured": {
+                            "live": current["configured"],
+                            "desired": desired["configured"],
+                        },
+                        "resolved": desired["resolved"],
+                    }
+                )
+                continue
             authorization = declared.get(service)
             if authorization is None or authorization[2:] != (current, desired):
                 raise ProtectedTransitionError("protected_transition_unauthorized")
             evidence.append(
                 {"service": service, "before": authorization[0], "after": authorization[1]}
             )
-        return {"registry_revision": checkout.revision, "transitions": evidence}, 0
+        return {
+            "registry_revision": checkout.revision,
+            "transitions": evidence,
+            "representation_equivalent": representation_equivalent,
+        }, 0
     except RegistryCheckoutError:
         return {"error": "registry_checkout_failed"}, 78
     except (OSError, yaml.YAMLError, ProtectedTransitionError) as error:

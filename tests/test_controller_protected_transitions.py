@@ -69,6 +69,76 @@ def test_rejects_an_unapproved_protected_image_change(tmp_path: Path) -> None:
     assert result["error"] == "protected_transition_unauthorized"
 
 
+def test_reports_equal_resolved_digest_as_representation_equivalent(tmp_path: Path) -> None:
+    registry, revision, compose = _registry(tmp_path)
+    docker = tmp_path / "docker"
+    docker.write_text(
+        "#!/bin/sh\n"
+        'case "$*" in\n'
+        "  *'compose -f'*'ps -q --all api') echo container-id ;;\n"
+        "  *'inspect --format {{.Config.Image}} container-id') "
+        "echo ghcr.io/example/api:stable ;;\n"
+        "  *'inspect --format {{.Image}} container-id') echo image-id ;;\n"
+        "  *'image inspect --format {{range .RepoDigests}}{{println .}}{{end}} image-id') "
+        "echo ghcr.io/example/api@sha256:" + "b" * 64 + " ;;\n"
+        "  *) exit 1 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+
+    result, status = validate(
+        registry=registry,
+        registry_revision=revision,
+        host_id=HOST_ID,
+        compose=compose,
+        docker=str(docker),
+    )
+
+    assert status == 0
+    assert result["transitions"] == []
+    assert result["representation_equivalent"] == [
+        {
+            "service": "api",
+            "configured": {
+                "live": "ghcr.io/example/api:stable",
+                "desired": "ghcr.io/example/api@sha256:" + "b" * 64,
+            },
+            "resolved": "ghcr.io/example/api@sha256:" + "b" * 64,
+        }
+    ]
+
+
+def test_rejects_matching_digest_from_a_different_repository(tmp_path: Path) -> None:
+    registry, revision, compose = _registry(tmp_path)
+    docker = tmp_path / "docker"
+    docker.write_text(
+        "#!/bin/sh\n"
+        'case "$*" in\n'
+        "  *'compose -f'*'ps -q --all api') echo container-id ;;\n"
+        "  *'inspect --format {{.Config.Image}} container-id') "
+        "echo ghcr.io/other/api:stable ;;\n"
+        "  *'inspect --format {{.Image}} container-id') echo image-id ;;\n"
+        "  *'image inspect --format {{range .RepoDigests}}{{println .}}{{end}} image-id') "
+        "echo ghcr.io/other/api@sha256:" + "b" * 64 + " ;;\n"
+        "  *) exit 1 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+
+    result, status = validate(
+        registry=registry,
+        registry_revision=revision,
+        host_id=HOST_ID,
+        compose=compose,
+        docker=str(docker),
+    )
+
+    assert status == 78
+    assert result["error"] == "protected_transition_unauthorized"
+
+
 def test_invalid_cli_usage_returns_a_yaml_envelope() -> None:
     payload, status = main([])
 
