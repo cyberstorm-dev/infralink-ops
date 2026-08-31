@@ -375,9 +375,7 @@ def test_verify_accepts_an_ingress_bind_address_owned_by_its_interface(
     monkeypatch.setattr(
         controller_firewall,
         "run",
-        _host_network_inventory(
-            [{"ifname": "enp6s0", "addr_info": [{"local": "203.0.113.10"}]}]
-        ),
+        _host_network_inventory([{"ifname": "enp6s0", "addr_info": [{"local": "203.0.113.10"}]}]),
     )
     monkeypatch.setattr(controller_firewall, "verify_firewall_policy", lambda **_kwargs: None)
 
@@ -428,6 +426,7 @@ def test_verify_fails_closed_when_live_address_inventory_is_unavailable(
     revision = _commit_registry(registry)
     compose = tmp_path / "docker-compose.yml"
     compose.write_text("services: {}\n", encoding="utf-8")
+
     def unavailable(*_args: object, **_kwargs: object) -> object:
         raise FileNotFoundError("ip")
 
