@@ -114,10 +114,31 @@ def _validated_image_cache(value: str) -> dict[str, str]:
     return result
 
 
-def _validated_failure_details(value: str | None) -> dict[str, Any] | None:
+def _validated_failure_details(value: str | None, *, reason_code: str) -> dict[str, Any] | None:
     if value is None:
         return None
     details = _json_mapping(value, "failure_details_invalid")
+    if reason_code == "firewall_management_interface_missing":
+        if set(details) != {"declared", "observed", "observed_count"}:
+            raise EvidenceError("failure_details_invalid")
+        declared = details["declared"]
+        observed = details["observed"]
+        observed_count = details["observed_count"]
+        if (
+            not isinstance(declared, str)
+            or re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", declared) is None
+            or not isinstance(observed, list)
+            or len(observed) > 32
+            or any(
+                not isinstance(item, str) or re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", item) is None
+                for item in observed
+            )
+            or not isinstance(observed_count, int)
+            or isinstance(observed_count, bool)
+            or observed_count < len(observed)
+        ):
+            raise EvidenceError("failure_details_invalid")
+        return details
     if set(details) != {"stage", "exit_code", "diagnostic_code"}:
         raise EvidenceError("failure_details_invalid")
     if details["stage"] != "adapter":
@@ -189,7 +210,9 @@ def write_failure(args: argparse.Namespace) -> dict[str, Any]:
     _validate_common(args)
     if _REASON_CODE.fullmatch(args.reason_code) is None:
         raise EvidenceError("reason_code_invalid")
-    failure_details = _validated_failure_details(args.failure_details_json)
+    failure_details = _validated_failure_details(
+        args.failure_details_json, reason_code=args.reason_code
+    )
     record = {
         "schema_version": "infralink.controller-reconcile/v2",
         "status": "failure",

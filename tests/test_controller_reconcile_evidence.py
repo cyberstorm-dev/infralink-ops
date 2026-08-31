@@ -147,6 +147,37 @@ def test_write_failure_records_a_strict_adapter_failure_summary(tmp_path: Path) 
     }
 
 
+def test_write_failure_records_bounded_management_interface_evidence(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    textfile_dir = tmp_path / "textfiles"
+    runtime_root.mkdir()
+    textfile_dir.mkdir()
+
+    completed = run_evidence(
+        "write-failure",
+        "--runtime-root",
+        str(runtime_root),
+        "--textfile-directory",
+        str(textfile_dir),
+        "--host-uuid",
+        HOST_UUID,
+        "--reason-code",
+        "firewall_management_interface_missing",
+        "--failure-details-json",
+        '{"declared":"eth0","observed":["enp6s0","lo"],"observed_count":2}',
+        "--observed-at",
+        OBSERVED_AT,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    record = yaml.safe_load((runtime_root / "reconcile-result.yml").read_text())
+    assert record["failure"] == {
+        "declared": "eth0",
+        "observed": ["enp6s0", "lo"],
+        "observed_count": 2,
+    }
+
+
 def test_write_failure_rejects_raw_adapter_stderr_without_mutating_evidence(tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime"
     textfile_dir = tmp_path / "textfiles"
