@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import subprocess
-import sys
-from importlib.metadata import entry_points
 from pathlib import Path
 
 import tomllib
-import yaml
 
 from infralink_ops.controller_images import prune_unused_images
 
@@ -56,37 +52,10 @@ def test_prune_unused_images_is_bounded_when_docker_never_returns(tmp_path: Path
     assert result == {"status": "warning", "reason": "docker_image_prune_timed_out"}
 
 
-def test_image_cleanup_cli_returns_hateoas_yaml(tmp_path: Path) -> None:
-    docker = tmp_path / "docker"
-    docker.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
-    docker.chmod(0o755)
+def test_image_cleanup_is_private_to_controller_reconcile() -> None:
+    project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
 
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "infralink_ops.controller_images",
-            "prune-unused",
-            "--docker",
-            str(docker),
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    assert completed.returncode == 0
-    payload = yaml.safe_load(completed.stdout)
-    assert payload["schema_version"] == "infralink.ops.docker-image-cleanup/v1"
-    assert payload["ok"] is True
-    assert payload["command"]["path"] == ["prune-unused"]
-    assert payload["result"] == {"status": "warning", "reason": "docker_image_prune_failed"}
-
-
-def test_installs_docker_image_cleanup_runnable() -> None:
-    scripts = entry_points(group="console_scripts")
-    command = next(entry for entry in scripts if entry.name == "infralink-controller-images")
-    assert command.value == "infralink_ops.controller_images:main"
+    assert "infralink-controller-images" not in project["project"]["scripts"]
 
 
 def test_runtime_release_version_is_semver() -> None:
