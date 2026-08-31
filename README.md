@@ -20,6 +20,7 @@ environment registry.
 | --- | --- |
 | Understand the runtime boundary | [Controller runtime guide](docs/controller-runtime-guide.md) |
 | Safely inspect an installed host controller | [Installed CLI quickstart](docs/installed-cli-quickstart.md) |
+| Diagnose stale controller or host evidence | [Stale-host triage runbook](docs/stale-host-triage.md) |
 | Debug a stale RelayOS staging rollout | [Controller runtime guide](docs/controller-runtime-guide.md#triage-a-stale-host) |
 | Check available CLIs | [`pyproject.toml`](pyproject.toml) |
 | Inspect host-installed launcher assets | [`src/infralink_ops/assets/`](src/infralink_ops/assets/) |
