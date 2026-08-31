@@ -35,7 +35,7 @@ sequenceDiagram
 | Template rendering | `infralink-controller-template-render` | Rendered files from explicit inputs. |
 | Static config trees | `materialize_config_tree` | Changed paths below the declared target. |
 | Compose consumers | `infralink-controller-config-consumers validate\|activate` | Affected consumers and services. |
-| Image cleanup | `infralink-controller-images prune-unused` | Docker removes only images unused by every container. |
+| Image cleanup | `infralink-controller-images prune-unused` | Docker removes only images unused by every container; a 60-second timeout becomes warning evidence. |
 | Secrets | `infralink-controller-render-secrets` | BWS-backed rendered values without committing secrets. |
 | Firewall | `infralink-controller-firewall render\|verify` | Declared nftables table or runtime drift result. |
 | Doctor | `infralink-controller-doctor` | Read-only host consistency envelope. |

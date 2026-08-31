@@ -45,6 +45,17 @@ def test_prune_unused_images_reports_a_warning_without_failing_reconcile(tmp_pat
     assert result == {"status": "warning", "reason": "docker_image_prune_failed"}
 
 
+def test_prune_unused_images_is_bounded_when_docker_never_returns(tmp_path: Path) -> None:
+    docker = tmp_path / "docker"
+    docker.write_text("#!/bin/sh\nsleep 2\n", encoding="utf-8")
+    docker.chmod(0o755)
+
+    result, exit_code = prune_unused_images(str(docker), timeout_seconds=0.01)
+
+    assert exit_code == 0
+    assert result == {"status": "warning", "reason": "docker_image_prune_timed_out"}
+
+
 def test_image_cleanup_cli_returns_hateoas_yaml(tmp_path: Path) -> None:
     docker = tmp_path / "docker"
     docker.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
