@@ -224,7 +224,7 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
     ]
     body = "\n".join(
         [
-            "destroy table inet infralink_filter",
+            "delete table inet infralink_filter",
             "table inet infralink_filter {",
             "  chain input {",
             "    type filter hook input priority filter; policy drop;",
