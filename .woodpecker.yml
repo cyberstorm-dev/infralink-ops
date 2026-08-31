@@ -12,7 +12,7 @@ steps:
     image: python:3.12-slim-bookworm
     when:
       - path:
-          exclude: [README.md, docs/**, tests/test_docs_contract.py]
+          exclude: [README.md, docs/**, tests/test_docs_contract.py, .woodpecker.yml]
     commands:
       - sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources
       - apt-get update && apt-get install --yes --no-install-recommends git && rm -rf /var/lib/apt/lists/*
@@ -33,7 +33,7 @@ steps:
     image: woodpeckerci/plugin-docker-buildx
     when:
       - path:
-          exclude: [README.md, docs/**, tests/test_docs_contract.py]
+          exclude: [README.md, docs/**, tests/test_docs_contract.py, .woodpecker.yml]
     settings:
       registry: ghcr.io
       repo: ghcr.io/cyberstorm-dev/infralink-ops-controller
