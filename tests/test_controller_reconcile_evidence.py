@@ -55,8 +55,10 @@ def test_write_success_records_revision_and_publishes_metrics(tmp_path: Path) ->
         ADAPTER_JSON,
         "--observed-at",
         OBSERVED_AT,
-        "--controller-image-cache-json",
+        "--docker-image-cleanup-json",
         '{"status":"ok"}',
+        "--docker-image-cleanup-json",
+        '{"status":"warning","reason":"docker_image_prune_failed"}',
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -71,6 +73,10 @@ def test_write_success_records_revision_and_publishes_metrics(tmp_path: Path) ->
     assert record["host_uuid"] == HOST_UUID
     assert record["registry_head"] == REVISION
     assert record["adapter"] == yaml.safe_load(ADAPTER_JSON)
+    assert record["docker_image_cleanup"] == {
+        "status": "warning",
+        "reason": "docker_image_prune_failed",
+    }
 
     metrics = (textfile_dir / "infralink-controller-reconcile.prom").read_text()
     assert "infralink_controller_reconcile_converged 1" in metrics
@@ -305,7 +311,7 @@ def test_write_success_rejects_an_invalid_timestamp_before_writing(tmp_path: Pat
         ADAPTER_JSON,
         "--observed-at",
         "not-a-timestamp",
-        "--controller-image-cache-json",
+        "--docker-image-cleanup-json",
         '{"status":"ok"}',
     )
 
@@ -345,7 +351,7 @@ def test_write_success_rejects_unknown_adapter_fields_without_writing(tmp_path: 
         adapter_json,
         "--observed-at",
         OBSERVED_AT,
-        "--controller-image-cache-json",
+        "--docker-image-cleanup-json",
         '{"status":"ok"}',
     )
 
@@ -384,12 +390,12 @@ def test_write_success_rejects_unbounded_cache_evidence_without_writing(tmp_path
         ADAPTER_JSON,
         "--observed-at",
         OBSERVED_AT,
-        "--controller-image-cache-json",
+        "--docker-image-cleanup-json",
         '{"status":"warning","stderr":"secret-like-value"}',
     )
 
     assert completed.returncode == 64
     envelope = yaml.safe_load(completed.stdout)
-    assert envelope["error"] == {"code": "controller_image_cache_invalid"}
+    assert envelope["error"] == {"code": "docker_image_cleanup_invalid"}
     assert not (runtime_root / "reconcile-result.yml").exists()
     assert not (textfile_dir / "infralink-controller-reconcile.prom").exists()

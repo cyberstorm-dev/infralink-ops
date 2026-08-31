@@ -135,6 +135,8 @@ def test_registry_rollout_runbook_is_discoverable_and_preserves_authority() -> N
         "Do not edit Compose files or rendered configuration on the host",
     ]:
         assert token in runbook
+
+
 def test_controller_cli_reference_groups_commands_by_authority() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     reference = (ROOT / "docs" / "controller-cli-reference.md").read_text(encoding="utf-8")
@@ -216,7 +218,7 @@ def test_controller_runtime_guide_documents_evidence_and_boundaries() -> None:
         "infralink-controller-template-render",
         "materialize_config_tree",
         "infralink-controller-firewall render\\|verify",
-        "infralink-controller-images retain-and-prune",
+        "infralink-controller-images prune-unused",
         "Use immutable `sha-<short-sha>` tags or digests for evidence",
         "Do not use `head` or `main` as acceptance evidence",
     ]:
