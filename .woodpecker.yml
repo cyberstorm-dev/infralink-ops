@@ -1,12 +1,18 @@
 steps:
   docs-contract:
     image: python:3.12-slim-bookworm
+    when:
+      - path:
+          include: [README.md, docs/**, tests/test_docs_contract.py, .woodpecker.yml]
     commands:
       - python -m pip install --disable-pip-version-check pytest
       - python -m pytest -q tests/test_docs_contract.py
 
   test-python:
     image: python:3.12-slim-bookworm
+    when:
+      - path:
+          exclude: [README.md, docs/**, tests/test_docs_contract.py]
     commands:
       - sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources
       - apt-get update && apt-get install --yes --no-install-recommends git && rm -rf /var/lib/apt/lists/*
@@ -25,6 +31,9 @@ steps:
 
   build-infralink-ops-controller:
     image: woodpeckerci/plugin-docker-buildx
+    when:
+      - path:
+          exclude: [README.md, docs/**, tests/test_docs_contract.py]
     settings:
       registry: ghcr.io
       repo: ghcr.io/cyberstorm-dev/infralink-ops-controller
