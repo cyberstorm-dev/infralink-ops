@@ -98,6 +98,20 @@ def test_woodpecker_exposes_pr_safe_docs_contract() -> None:
         assert forbidden not in docs_step
 
 
+def test_docs_only_changes_do_not_publish_the_controller() -> None:
+    text = WOODPECKER.read_text(encoding="utf-8")
+    match = re.search(
+        r"^  publish-infralink-ops-controller:\n(?P<body>(?:    .+\n)+)",
+        text,
+        re.MULTILINE,
+    )
+
+    assert match is not None
+    assert "exclude: [README.md, docs/**, tests/test_docs_contract.py, .woodpecker.yml]" in match.group(
+        "body"
+    )
+
+
 def test_controller_runtime_guide_documents_evidence_and_boundaries() -> None:
     text = (ROOT / "docs" / "controller-runtime-guide.md").read_text(encoding="utf-8")
 
