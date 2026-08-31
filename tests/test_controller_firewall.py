@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,14 @@ def _commit_registry(registry: Path) -> str:
         capture_output=True,
         text=True,
     ).stdout.strip()
+
+
+def _host_network_inventory(entries: list[dict[str, object]]):
+    def invoke(arguments: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert arguments == ["nsenter", "-t", "1", "-n", "ip", "-j", "address", "show"]
+        return subprocess.CompletedProcess(arguments, 0, stdout=json.dumps(entries), stderr="")
+
+    return invoke
 
 
 def test_render_reports_a_host_without_firewall_as_disabled(tmp_path: Path) -> None:
@@ -128,7 +137,11 @@ def test_verify_invokes_public_runtime_for_a_declared_firewall(tmp_path: Path, m
         observed["compose"] = compose
 
     monkeypatch.setattr(controller_firewall, "verify_firewall_policy", verify)
-    monkeypatch.setattr(controller_firewall.socket, "if_nameindex", lambda: [(1, "tailscale0")])
+    monkeypatch.setattr(
+        controller_firewall,
+        "run",
+        _host_network_inventory([{"ifname": "tailscale0", "addr_info": []}]),
+    )
 
     payload, status = controller_firewall.main(
         [
@@ -172,7 +185,14 @@ def test_render_rejects_a_missing_management_interface_before_emitting_rules(
     compose = tmp_path / "docker-compose.yml"
     compose.write_text("services: {}\n", encoding="utf-8")
     monkeypatch.setattr(
-        controller_firewall.socket, "if_nameindex", lambda: [(1, "lo"), (2, "enp6s0")]
+        controller_firewall,
+        "run",
+        _host_network_inventory(
+            [
+                {"ifname": "lo", "addr_info": []},
+                {"ifname": "enp6s0", "addr_info": []},
+            ]
+        ),
     )
 
     payload, status = controller_firewall.main(
@@ -227,13 +247,10 @@ def test_verify_rejects_a_missing_declared_ingress_interface(tmp_path: Path, mon
     revision = _commit_registry(registry)
     compose = tmp_path / "docker-compose.yml"
     compose.write_text("services: {}\n", encoding="utf-8")
-    monkeypatch.setattr(controller_firewall.socket, "if_nameindex", lambda: [(1, "enp6s0")])
     monkeypatch.setattr(
         controller_firewall,
         "run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess(
-            _args, 0, stdout='[{"ifname":"enp6s0","addr_info":[]}]', stderr=""
-        ),
+        _host_network_inventory([{"ifname": "enp6s0", "addr_info": []}]),
     )
     monkeypatch.setattr(controller_firewall, "verify_firewall_policy", lambda **_kwargs: None)
 
@@ -292,13 +309,10 @@ def test_verify_rejects_an_ingress_bind_address_absent_from_its_interface(
     revision = _commit_registry(registry)
     compose = tmp_path / "docker-compose.yml"
     compose.write_text("services: {}\n", encoding="utf-8")
-    monkeypatch.setattr(controller_firewall.socket, "if_nameindex", lambda: [(1, "enp6s0")])
     monkeypatch.setattr(
         controller_firewall,
         "run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess(
-            _args, 0, stdout='[{"ifname":"enp6s0","addr_info":[]}]', stderr=""
-        ),
+        _host_network_inventory([{"ifname": "enp6s0", "addr_info": []}]),
     )
     monkeypatch.setattr(controller_firewall, "verify_firewall_policy", lambda **_kwargs: None)
 
@@ -358,15 +372,11 @@ def test_verify_accepts_an_ingress_bind_address_owned_by_its_interface(
     revision = _commit_registry(registry)
     compose = tmp_path / "docker-compose.yml"
     compose.write_text("services: {}\n", encoding="utf-8")
-    monkeypatch.setattr(controller_firewall.socket, "if_nameindex", lambda: [(1, "enp6s0")])
     monkeypatch.setattr(
         controller_firewall,
         "run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess(
-            _args,
-            0,
-            stdout=('[{"ifname":"enp6s0","addr_info":[{"local":"203.0.113.10"}]}]'),
-            stderr="",
+        _host_network_inventory(
+            [{"ifname": "enp6s0", "addr_info": [{"local": "203.0.113.10"}]}]
         ),
     )
     monkeypatch.setattr(controller_firewall, "verify_firewall_policy", lambda **_kwargs: None)
@@ -418,8 +428,6 @@ def test_verify_fails_closed_when_live_address_inventory_is_unavailable(
     revision = _commit_registry(registry)
     compose = tmp_path / "docker-compose.yml"
     compose.write_text("services: {}\n", encoding="utf-8")
-    monkeypatch.setattr(controller_firewall.socket, "if_nameindex", lambda: [(1, "enp6s0")])
-
     def unavailable(*_args: object, **_kwargs: object) -> object:
         raise FileNotFoundError("ip")
 
@@ -466,9 +474,11 @@ def test_render_bounds_observed_interfaces_in_management_interface_failure(
     compose = tmp_path / "docker-compose.yml"
     compose.write_text("services: {}\n", encoding="utf-8")
     monkeypatch.setattr(
-        controller_firewall.socket,
-        "if_nameindex",
-        lambda: [(index, f"if{index:02d}") for index in range(40)],
+        controller_firewall,
+        "run",
+        _host_network_inventory(
+            [{"ifname": f"if{index:02d}", "addr_info": []} for index in range(40)]
+        ),
     )
 
     payload, status = controller_firewall.main(
@@ -520,9 +530,11 @@ def test_verify_all_interface_management_ssh_without_enumerating_interfaces(
     compose = tmp_path / "docker-compose.yml"
     compose.write_text("services: {}\n", encoding="utf-8")
     monkeypatch.setattr(
-        controller_firewall.socket,
-        "if_nameindex",
-        lambda: (_ for _ in ()).throw(AssertionError("interface enumeration is unnecessary")),
+        controller_firewall,
+        "run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("network inventory is unnecessary")
+        ),
     )
     monkeypatch.setattr(controller_firewall, "verify_firewall_policy", lambda **_kwargs: None)
 
