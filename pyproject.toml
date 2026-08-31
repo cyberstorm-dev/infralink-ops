@@ -41,6 +41,9 @@ infralink-controller-artifact-bindings = "infralink_ops.typed_artifact_materiali
 infralink-controller-artifacts = "infralink_ops.controller_artifacts:cli"
 infralink-controller-bootstrap = "infralink_ops.controller_bootstrap:cli"
 
+[project.entry-points."infralink.commands"]
+controller = "infralink_ops.controller_surface:controller_command"
+
 [tool.hatch.metadata]
 allow-direct-references = true
 
