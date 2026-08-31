@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-import argparse
 import re
 import subprocess
-import sys
 from pathlib import Path
-from typing import Any
 
 import yaml
 
 from infralink_ops.registry_checkout import RegistryCheckoutError, verify_registry_revision
 
-SCHEMA_VERSION = "infralink.ops.protected-transitions/v1"
 _DIGEST_REFERENCE = re.compile(r"^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$")
 _TAG = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
 Identity = dict[str, str]
@@ -22,13 +18,6 @@ DeclaredTransition = tuple[Identity, Identity, Identity, Identity]
 
 class ProtectedTransitionError(ValueError):
     """A protected image transition is invalid or unauthorized."""
-
-
-class EnvelopeParser(argparse.ArgumentParser):
-    """Keep invalid invocation inside the public response envelope."""
-
-    def error(self, message: str) -> None:
-        raise ProtectedTransitionError("usage_error")
 
 
 def canonical_repository(value: str) -> str:
@@ -195,67 +184,3 @@ def validate(
         return {"error": "registry_checkout_failed"}, 78
     except (OSError, yaml.YAMLError, ProtectedTransitionError) as error:
         return {"error": str(error)}, 78
-
-
-def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
-    """Execute the protected-transition validator through its YAML envelope."""
-
-    parser = EnvelopeParser(prog="infralink-controller-protected-transitions")
-    parser.add_argument("--registry", required=True, type=Path)
-    parser.add_argument("--registry-revision", required=True)
-    parser.add_argument("--host-id", required=True)
-    parser.add_argument("--compose", required=True, type=Path)
-    parser.add_argument("--docker", default="docker")
-    try:
-        arguments = parser.parse_args(argv)
-    except ProtectedTransitionError as error:
-        return (
-            {
-                "schema_version": SCHEMA_VERSION,
-                "ok": False,
-                "command": {"path": [], "args": {}},
-                "error": {"code": str(error)},
-                "next_actions": [],
-                "meta": {"truncated": False},
-            },
-            64,
-        )
-    result, status = validate(
-        registry=arguments.registry,
-        registry_revision=arguments.registry_revision,
-        host_id=arguments.host_id,
-        compose=arguments.compose,
-        docker=arguments.docker,
-    )
-    payload: dict[str, Any] = {
-        "schema_version": SCHEMA_VERSION,
-        "ok": status == 0,
-        "command": {
-            "path": ["validate"],
-            "args": {
-                "registry": str(arguments.registry),
-                "registry_revision": arguments.registry_revision,
-                "host_id": arguments.host_id,
-                "compose": str(arguments.compose),
-            },
-        },
-        "next_actions": [],
-        "meta": {"truncated": False},
-    }
-    if status == 0:
-        payload["result"] = result
-    else:
-        payload["error"] = result
-    return payload, status
-
-
-def cli() -> int:
-    """Write the protected-transition validation envelope as YAML."""
-
-    payload, status = main()
-    sys.stdout.write(yaml.safe_dump(payload, sort_keys=False))
-    return status
-
-
-if __name__ == "__main__":
-    raise SystemExit(cli())

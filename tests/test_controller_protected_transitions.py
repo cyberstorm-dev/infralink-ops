@@ -1,9 +1,10 @@
 import subprocess
 from pathlib import Path
 
+import tomllib
 import yaml
 
-from infralink_ops.controller_protected_transitions import main, validate
+from infralink_ops.controller_protected_transitions import validate
 
 HOST_ID = "11111111-1111-4111-8111-111111111111"
 
@@ -139,10 +140,7 @@ def test_rejects_matching_digest_from_a_different_repository(tmp_path: Path) -> 
     assert result["error"] == "protected_transition_unauthorized"
 
 
-def test_invalid_cli_usage_returns_a_yaml_envelope() -> None:
-    payload, status = main([])
+def test_protected_transition_validator_has_no_console_script() -> None:
+    project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
 
-    assert status == 64
-    assert payload["schema_version"] == "infralink.ops.protected-transitions/v1"
-    assert payload["ok"] is False
-    assert payload["error"] == {"code": "usage_error"}
+    assert "infralink-controller-protected-transitions" not in project["project"]["scripts"]
