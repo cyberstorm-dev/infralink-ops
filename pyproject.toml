@@ -9,7 +9,7 @@ description = "Operational runtime for direct Infralink registry projections"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "infralink>=0.6,<0.7",
+  "infralink>=0.6.21,<0.7",
   "Jinja2>=3.0",
   "PyYAML>=6.0",
 ]
