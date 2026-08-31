@@ -216,7 +216,7 @@ def test_controller_runtime_guide_documents_evidence_and_boundaries() -> None:
         "infralink-controller-template-render",
         "materialize_config_tree",
         "infralink-controller-firewall render\\|verify",
-        "infralink-controller-images retain-and-prune",
+        "infralink-controller-images prune-unused",
         "Use immutable `sha-<short-sha>` tags or digests for evidence",
         "Do not use `head` or `main` as acceptance evidence",
     ]:

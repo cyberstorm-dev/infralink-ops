@@ -106,20 +106,20 @@ def _validated_adapter(value: str, registry_revision: str) -> dict[str, Any]:
     return result.model_dump(mode="json")
 
 
-def _validated_image_cache(value: str) -> dict[str, str]:
-    cache = _json_mapping(value, "controller_image_cache_invalid")
-    if set(cache) - {"status", "reason"}:
-        raise EvidenceError("controller_image_cache_invalid")
-    status = cache.get("status")
-    reason = cache.get("reason")
+def _validated_docker_image_cleanup(value: str) -> dict[str, str]:
+    cleanup = _json_mapping(value, "docker_image_cleanup_invalid")
+    if set(cleanup) - {"status", "reason"}:
+        raise EvidenceError("docker_image_cleanup_invalid")
+    status = cleanup.get("status")
+    reason = cleanup.get("reason")
     if status not in {"ok", "warning"}:
-        raise EvidenceError("controller_image_cache_invalid")
+        raise EvidenceError("docker_image_cleanup_invalid")
     if reason is not None and (
         not isinstance(reason, str) or _REASON_CODE.fullmatch(reason) is None
     ):
-        raise EvidenceError("controller_image_cache_invalid")
+        raise EvidenceError("docker_image_cleanup_invalid")
     if status == "ok" and reason is not None:
-        raise EvidenceError("controller_image_cache_invalid")
+        raise EvidenceError("docker_image_cleanup_invalid")
     result = {"status": status}
     if reason is not None:
         result["reason"] = reason
@@ -224,7 +224,7 @@ def _payload(
 def write_success(args: argparse.Namespace) -> dict[str, Any]:
     _validate_success(args)
     adapter = _validated_adapter(args.adapter_json, args.registry_revision)
-    image_cache = _validated_image_cache(args.controller_image_cache_json)
+    docker_image_cleanup = _validated_docker_image_cleanup(args.docker_image_cleanup_json)
     record = {
         "schema_version": "infralink.controller-reconcile/v2",
         "status": "success",
@@ -234,7 +234,7 @@ def write_success(args: argparse.Namespace) -> dict[str, Any]:
         "registry_repo_url": args.registry_repo_url,
         "controller_reference": args.controller_reference,
         "controller_digest": args.controller_digest,
-        "controller_image_cache": image_cache,
+        "docker_image_cleanup": docker_image_cleanup,
         "adapter": adapter,
         "observed_at": args.observed_at,
     }
@@ -297,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
     success.add_argument("--controller-digest", required=True)
     success.add_argument("--adapter-json", required=True)
     success.add_argument("--observed-at", required=True)
-    success.add_argument("--controller-image-cache-json", required=True)
+    success.add_argument("--docker-image-cleanup-json", required=True)
     failure = commands.add_parser("write-failure")
     failure.add_argument("--runtime-root", required=True, type=Path)
     failure.add_argument("--textfile-directory", required=True, type=Path)
