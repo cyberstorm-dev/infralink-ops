@@ -7,8 +7,7 @@ from typing import Any, Literal
 
 import click
 from agent_surface import App, OperationError
-from agent_surface.adapters.click import ClickAdapter
-from infralink.agent_surface import InfralinkEnvelopeRenderer
+from infralink.agent_surface import mounted_click_command
 from pydantic import BaseModel, ConfigDict
 
 from infralink_ops import controller_doctor
@@ -71,7 +70,7 @@ def controller_doctor_operation(request: ControllerDoctorRequest) -> ControllerD
 
 def controller_command() -> click.Command:
     """Return the ``controller`` child generated from the typed operation registry."""
-    root = ClickAdapter(controller_surface, envelope_renderer=InfralinkEnvelopeRenderer()).command()
+    root = mounted_click_command(controller_surface)
     command = root.get_command(click.Context(root), "controller")
     if command is None:
         raise RuntimeError("controller_command_missing")
