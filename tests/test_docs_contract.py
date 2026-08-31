@@ -73,6 +73,28 @@ def test_readme_is_operator_entrypoint() -> None:
         assert token in text
 
 
+def test_installed_cli_quickstart_is_discoverable_and_safe() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    quickstart = (ROOT / "docs" / "installed-cli-quickstart.md").read_text(encoding="utf-8")
+
+    assert "[Installed CLI quickstart](docs/installed-cli-quickstart.md)" in readme
+    for token in [
+        "# Installed Infralink CLI Quickstart",
+        "## BLUF",
+        "## Before You Run Anything",
+        "## Read-Only Host Evidence",
+        "## Reconcile Only Through The Timer",
+        "## Bootstrap Is An Explicit Host Change",
+        "infralink-host doctor",
+        "systemctl status infralink-host-reconcile.timer",
+        "sudo systemctl start infralink-host-reconcile.service",
+        "infralink-host bootstrap --apply",
+        "machine-readable evidence",
+        "Do not edit `/opt/services` directly",
+    ]:
+        assert token in quickstart
+
+
 def test_woodpecker_exposes_pr_safe_docs_contract() -> None:
     text = WOODPECKER.read_text(encoding="utf-8")
 
@@ -107,8 +129,9 @@ def test_docs_only_changes_do_not_publish_the_controller() -> None:
     )
 
     assert match is not None
-    assert "exclude: [README.md, docs/**, tests/test_docs_contract.py, .woodpecker.yml]" in match.group(
-        "body"
+    assert (
+        "exclude: [README.md, docs/**, tests/test_docs_contract.py, .woodpecker.yml]"
+        in match.group("body")
     )
 
 
@@ -144,5 +167,9 @@ def test_docs_do_not_recommend_legacy_relayos_staging_controller_paths() -> None
 
 
 def test_markdown_links_resolve_for_operator_docs() -> None:
-    for path in [ROOT / "README.md", ROOT / "docs" / "controller-runtime-guide.md"]:
+    for path in [
+        ROOT / "README.md",
+        ROOT / "docs" / "controller-runtime-guide.md",
+        ROOT / "docs" / "installed-cli-quickstart.md",
+    ]:
         _assert_local_markdown_links_resolve(path)
