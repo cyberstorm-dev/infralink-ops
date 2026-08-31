@@ -116,6 +116,27 @@ def test_stale_host_triage_runbook_is_discoverable_and_safe() -> None:
         assert token in runbook
 
 
+def test_registry_rollout_runbook_is_discoverable_and_preserves_authority() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "docs" / "registry-rollout-runbook.md").read_text(encoding="utf-8")
+
+    assert "[Registry rollout runbook](docs/registry-rollout-runbook.md)" in readme
+    for token in [
+        "# Registry Promotion, Reconciliation, And Rollback",
+        "## BLUF",
+        "## Promote One Immutable Registry Revision",
+        "## Verify Reconciliation Evidence",
+        "## Roll Back By Selecting A Prior Revision",
+        "## When To Escalate",
+        "infralink-host doctor",
+        "systemctl status infralink-host-reconcile.service",
+        "/var/lib/infralink/reconcile-result.yml",
+        "Registry is the sole desired-state authority",
+        "Do not edit Compose files or rendered configuration on the host",
+    ]:
+        assert token in runbook
+
+
 def test_woodpecker_exposes_pr_safe_docs_contract() -> None:
     text = WOODPECKER.read_text(encoding="utf-8")
 
@@ -193,5 +214,6 @@ def test_markdown_links_resolve_for_operator_docs() -> None:
         ROOT / "docs" / "controller-runtime-guide.md",
         ROOT / "docs" / "installed-cli-quickstart.md",
         ROOT / "docs" / "stale-host-triage.md",
+        ROOT / "docs" / "registry-rollout-runbook.md",
     ]:
         _assert_local_markdown_links_resolve(path)
