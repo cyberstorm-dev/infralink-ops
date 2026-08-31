@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
-import socket
 import sys
 from pathlib import Path
 from subprocess import run
@@ -80,18 +79,12 @@ def _payload(
     return payload
 
 
-def _interfaces() -> list[str]:
-    """Return the concrete live interfaces from the host network namespace."""
-
-    return sorted({name for _, name in socket.if_nameindex()})
-
-
 def _interface_addresses() -> dict[str, list[str]]:
-    """Return concrete addresses owned by each live host interface."""
+    """Return concrete host-namespace addresses owned by each interface."""
 
     try:
         completed = run(
-            ["ip", "-j", "address", "show"],
+            ["nsenter", "-t", "1", "-n", "ip", "-j", "address", "show"],
             check=False,
             capture_output=True,
             text=True,
@@ -140,7 +133,8 @@ def _validate_host_listeners(*, firewall: object) -> None:
     ingress = firewall.ingress
     if management.interface == "any" and not ingress:
         return
-    observed_interfaces = _interfaces()
+    addresses_by_interface = _interface_addresses()
+    observed_interfaces = sorted(addresses_by_interface)
     bounded_interfaces, interface_count, interface_truncated = _bounded(observed_interfaces)
 
     if management.interface != "any" and management.interface not in observed_interfaces:
@@ -165,10 +159,6 @@ def _validate_host_listeners(*, firewall: object) -> None:
                 },
                 truncated=interface_truncated,
             )
-    if not ingress:
-        return
-
-    addresses_by_interface = _interface_addresses()
     for rule in ingress:
         observed_addresses = addresses_by_interface.get(rule.interface, [])
         bounded_addresses, address_count, address_truncated = _bounded(observed_addresses)
