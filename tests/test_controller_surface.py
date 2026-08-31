@@ -50,7 +50,8 @@ def test_controller_doctor_projects_the_private_probe_through_infralink(monkeypa
 def test_controller_doctor_is_discovered_by_the_native_mcp_projection() -> None:
     assert _native_paths()["infralink_controller_doctor"] == ("controller", "doctor")
     tool = _native_tool("infralink_controller_doctor", ("controller", "doctor"))
-    assert {"format", "yaml_style", "registry", "edges"}.isdisjoint(tool.input_schema["properties"])
+    assert {"format", "yaml_style"}.isdisjoint(tool.input_schema["properties"])
+    assert {"registry", "edges"} <= set(tool.input_schema["properties"])
 
     payload = invoke_cli(["controller", "doctor"])
 
