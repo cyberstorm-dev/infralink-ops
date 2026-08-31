@@ -33,18 +33,21 @@ an optional compatibility path.
 1. **Infralink contract release:** Merge Infralink PR
    [`#307`](https://github.com/cyberstorm-dev/infralink/pull/307) and release a
    wheel containing commit
-   `f1b2a5fbff965df239f0f30ba52c3501926ada82` or its corrected successor. The
+   `e68ca53b863ddb89616a7fcde31fd3303048e7da` or a later corrected successor. The
    wheel must export:
    - `infralink.fleet.FleetPrometheusEvidence`,
      `FleetPrometheusEvidenceSignature`, and `FleetPrometheusTarget`;
    - `infralink.fleet.prometheus_evidence.SCHEMA_VERSION`; and
    - `infralink/schemas/fleet/prometheus-evidence-v1.json` plus the canonical
-     fixture semantics supplied by `FleetPrometheusEvidence.canonical_signed_bytes()`.
+     fixture semantics supplied by `FleetPrometheusEvidence.canonical_signed_bytes()`
+     and `FleetPrometheusEvidence.verify_signature()`.
 
    The current released dependency is `infralink 0.6.20`, which does not
    contain these names. Pin `pyproject.toml` to the first released version that
    does contain them. Do not use a Git URL, a branch, a source checkout, or a
-   locally copied Pydantic model.
+   locally copied Pydantic model. The released contract requires targets as a
+   map keyed by the exact canonical target ID, signed `max_age_seconds`, and
+   RFC3339 UTC timestamps with whole-second `Z` precision.
 
 2. **Registry declaration release:** Complete
    [`infra-registry #711`](https://gitea.i.cyberstorm.dev/relaxgg/infra-registry/issues/711)
@@ -61,6 +64,12 @@ an optional compatibility path.
 The contract release alone is insufficient: an ID has no safe query meaning
 until Registry #711 publishes the target declaration and the controller's
 fixed target projection that it selects.
+
+The operator-configured public verifier mapping is reader configuration. The
+producer does not load, validate, or expose public verifier keys. It receives
+only the Registry-declared private signing-key binding, emits its stable
+`signature.key_id`, and is validated against the released test vector in
+controller tests.
 
 ## Current implementation boundary
 
@@ -96,6 +105,10 @@ from infralink.fleet.prometheus_evidence import SCHEMA_VERSION
 def test_uses_the_released_v1_evidence_contract() -> None:
     assert SCHEMA_VERSION == "infralink.fleet-prometheus-evidence/v1"
     assert FleetPrometheusEvidence.__module__ == "infralink.fleet.prometheus_evidence"
+
+
+def test_released_contract_includes_the_verifier_api() -> None:
+    assert callable(FleetPrometheusEvidence.verify_signature)
 ```
 
 - [ ] **Step 2: Run the focused test before changing the dependency**
@@ -151,7 +164,7 @@ following keys at every level: `url`, `query`, `query_text`, `matcher`,
 ```python
 def test_rejects_registry_declarations_with_transport_or_secret_values(...) -> None:
     declaration = valid_registry_declaration()
-    declaration["targets"][0]["query"] = "up"
+    declaration["targets"]["controller-api"]["query"] = "up"
 
     with pytest.raises(FleetEvidenceProducerError, match="declaration_invalid"):
         load_declared_prometheus_evidence_configuration(...)
@@ -209,8 +222,10 @@ def test_refresh_signs_and_atomically_replaces_complete_evidence(...) -> None:
     result = refresh_fleet_prometheus_evidence(...)
 
     evidence = FleetPrometheusEvidence.model_validate_json(read_stable_regular_file(output))
-    assert tuple(target.id for target in evidence.targets) == ("controller-api", "edge-prober")
-    assert verify_ed25519(evidence.canonical_signed_bytes(), evidence.signature.value, public_key)
+    assert tuple(evidence.targets) == ("controller-api", "edge-prober")
+    assert all(target_id == target.id for target_id, target in evidence.targets.items())
+    assert evidence.max_age_seconds == 600
+    assert evidence.verify_signature(public_key) is True
     assert result.status == "success"
 
 
@@ -224,11 +239,13 @@ def test_refresh_keeps_previous_evidence_when_one_target_query_cannot_finish(...
 ```
 
 Also test duplicate IDs, more than 256 declared targets, an out-of-range
-window, an unknown target projection, query timeout, response-size overflow,
-invalid JSON, non-numeric sample data, invalid signing key, invalid signature,
-and output replacement durability uncertainty. The producer result must use
-bounded reason codes and never include URL, query, response, credential, or
-key material.
+window or `max_age_seconds`, a target-map key that differs from `target.id`, an
+unknown target projection, query timeout, response-size overflow, invalid JSON,
+non-numeric sample data, invalid signing key, invalid signature, fractional or
+offset timestamps, and output replacement durability uncertainty. Verify the
+released Ed25519 test vector from Infralink PR #307 before adding
+controller-specific signing tests. The producer result must use bounded reason
+codes and never include URL, query, response, credential, or key material.
 
 - [ ] **Step 2: Run the focused producer tests**
 
@@ -245,12 +262,16 @@ Expected: failure before the producer exists.
 Use the query projection released with Registry #711. Query construction is
 controller code, not Registry text. Enforce the fixed total deadline,
 per-request deadline, concurrency limit, response-byte limit, and
-`window_seconds` bounds selected in that release. Map every terminal result to
-the released `FleetPrometheusTarget` status/detail-code pair. Construct one
-`FleetPrometheusEvidence`, call `canonical_signed_bytes()`, sign those exact
-bytes with Ed25519, and replace the configured controller-owned artifact by
-calling `install_artifact_body(..., mode=0o640, ...)` only after the complete
-artifact validates.
+`window_seconds` bounds selected in that release. Use a fixed controller policy
+constant for `max_age_seconds`; do not accept it through Registry, an argument,
+or the environment. Format `generated_at` and every non-null `observed_at` as
+whole-second UTC strings using `YYYY-MM-DDTHH:MM:SSZ`. Map every terminal result
+to the released `FleetPrometheusTarget` status/detail-code pair, construct the
+target map with each canonical target ID as both map key and `target.id`, and
+construct one `FleetPrometheusEvidence`. Call `canonical_signed_bytes()`, sign
+those exact bytes with Ed25519, and replace the configured controller-owned
+artifact by calling `install_artifact_body(..., mode=0o640, ...)` only after the
+complete artifact validates.
 
 The producer must retain the previous valid artifact on a failed refresh. It
 must not write partial results or placeholder artifacts.
@@ -316,7 +337,9 @@ Expected: failure before the producer freshness evidence exists.
 - [ ] **Step 3: Add producer freshness only**
 
 Publish a controller-local freshness result and metric that state whether the
-last complete artifact refresh succeeded within the declared freshness bound.
+last complete artifact refresh succeeded within the artifact's signed
+`max_age_seconds` bound. The metric derives freshness from the artifact's
+whole-second `generated_at` and does not introduce a separate mutable timeout.
 Do not publish target IDs, Prometheus endpoint information, query text, raw
 samples, credentials, signing keys, or the signed artifact itself. Extend
 doctor to report an explicit stale/missing producer reason without triggering a
@@ -412,7 +435,7 @@ hold for the same Registry revision:
 | Missing sample | Complete artifact with the declared target marked `absent`; no partial write. |
 | Query/provider failure | Complete artifact only when every target has a released terminal status; previous valid artifact remains on refresh failure. |
 | Invalid Registry declaration | No BWS lookup, network request, artifact write, or public surface change. |
-| Stale producer | Doctor/freshness reports a bounded stale reason; no refresh is triggered by the reader. |
+| Stale producer | Doctor/freshness evaluates signed `max_age_seconds`, reports a bounded stale reason, and does not trigger a reader refresh. |
 | Invalid signing material | No artifact replacement; no key material appears in output or metrics. |
 | Public Infralink invocation | Reads the later configured artifact only; it has no URL, credential, target-file, SSH, Docker, BWS, or repair input. |
 
