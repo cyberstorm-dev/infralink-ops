@@ -135,6 +135,31 @@ def test_registry_rollout_runbook_is_discoverable_and_preserves_authority() -> N
         "Do not edit Compose files or rendered configuration on the host",
     ]:
         assert token in runbook
+def test_controller_cli_reference_groups_commands_by_authority() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    reference = (ROOT / "docs" / "controller-cli-reference.md").read_text(encoding="utf-8")
+
+    assert "[Controller CLI reference](docs/controller-cli-reference.md)" in readme
+    for token in [
+        "# Controller Runtime CLI Reference",
+        "## BLUF",
+        "## Operator Entry Points",
+        "## Controller-Internal Primitives",
+        "## Ownership And Mutability",
+        "## Reading Structured Results",
+        "`infralink`",
+        "`infralink-host`",
+        "`infralink-controller-doctor`",
+        "`infralink-controller-registry-checkout`",
+        "`infralink-controller-template-render`",
+        "`infralink-controller-config-consumers`",
+        "`infralink-controller-render-secrets`",
+        "`infralink-controller-firewall`",
+        "`infralink-controller-bootstrap`",
+        "Registry repository",
+        "not a desired-state selector",
+    ]:
+        assert token in reference
 
 
 def test_woodpecker_exposes_pr_safe_docs_contract() -> None:
@@ -215,5 +240,6 @@ def test_markdown_links_resolve_for_operator_docs() -> None:
         ROOT / "docs" / "installed-cli-quickstart.md",
         ROOT / "docs" / "stale-host-triage.md",
         ROOT / "docs" / "registry-rollout-runbook.md",
+        ROOT / "docs" / "controller-cli-reference.md",
     ]:
         _assert_local_markdown_links_resolve(path)

@@ -22,6 +22,7 @@ environment registry.
 | Safely inspect an installed host controller | [Installed CLI quickstart](docs/installed-cli-quickstart.md) |
 | Promote, verify, or roll back a Registry change | [Registry rollout runbook](docs/registry-rollout-runbook.md) |
 | Diagnose stale controller or host evidence | [Stale-host triage runbook](docs/stale-host-triage.md) |
+| Identify the right controller command and its authority | [Controller CLI reference](docs/controller-cli-reference.md) |
 | Debug a stale RelayOS staging rollout | [Controller runtime guide](docs/controller-runtime-guide.md#triage-a-stale-host) |
 | Check available CLIs | [`pyproject.toml`](pyproject.toml) |
 | Inspect host-installed launcher assets | [`src/infralink_ops/assets/`](src/infralink_ops/assets/) |
