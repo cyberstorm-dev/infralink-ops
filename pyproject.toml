@@ -19,7 +19,6 @@ dev = ["build>=1.2", "pytest>=8.0", "ruff>=0.6", "twine>=6.0"]
 
 [project.scripts]
 infralink-ops = "infralink_ops.cli:run"
-infralink-controller-images = "infralink_ops.controller_images:main"
 infralink-controller-metrics = "infralink_ops.controller_metrics:main"
 infralink-controller-reconcile-evidence = "infralink_ops.controller_reconcile_evidence:main"
 infralink-controller-registry-checkout = "infralink_ops.controller_registry_checkout:main"
