@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
+import json
 import socket
 import sys
 from pathlib import Path
+from subprocess import run
 from typing import Any
 
 import yaml
@@ -22,14 +25,15 @@ SCHEMA_VERSION = "infralink.ops.firewall/v1"
 MAX_OBSERVED_INTERFACES = 32
 
 
-class ManagementInterfaceError(FirewallError):
-    """A declared management interface is absent from the live host."""
+class FirewallPreflightError(FirewallError):
+    """A host listener declaration does not match the live network namespace."""
 
-    def __init__(self, *, declared: str, observed: list[str], observed_count: int) -> None:
-        super().__init__("firewall_management_interface_missing")
-        self.declared = declared
-        self.observed = observed
-        self.observed_count = observed_count
+    def __init__(
+        self, code: str, *, details: dict[str, object] | None = None, truncated: bool = False
+    ) -> None:
+        super().__init__(code)
+        self.details = details
+        self.truncated = truncated
 
 
 class EnvelopeParser(argparse.ArgumentParser):
@@ -76,18 +80,110 @@ def _payload(
     return payload
 
 
-def _validate_management_interface(*, interface: str) -> None:
-    """Reject a concrete management interface absent from the live namespace."""
+def _interfaces() -> list[str]:
+    """Return the concrete live interfaces from the host network namespace."""
 
-    if interface == "any":
-        return
-    all_observed = sorted({name for _, name in socket.if_nameindex()})
-    if interface not in all_observed:
-        raise ManagementInterfaceError(
-            declared=interface,
-            observed=all_observed[:MAX_OBSERVED_INTERFACES],
-            observed_count=len(all_observed),
+    return sorted({name for _, name in socket.if_nameindex()})
+
+
+def _interface_addresses() -> dict[str, list[str]]:
+    """Return concrete addresses owned by each live host interface."""
+
+    try:
+        completed = run(
+            ["ip", "-j", "address", "show"],
+            check=False,
+            capture_output=True,
+            text=True,
         )
+    except OSError as error:
+        raise FirewallPreflightError("firewall_network_inventory_unavailable") from error
+    if completed.returncode != 0:
+        raise FirewallPreflightError("firewall_network_inventory_unavailable")
+    try:
+        entries = json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise FirewallPreflightError("firewall_network_inventory_unavailable") from error
+    if not isinstance(entries, list):
+        raise FirewallPreflightError("firewall_network_inventory_unavailable")
+
+    result: dict[str, list[str]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise FirewallPreflightError("firewall_network_inventory_unavailable")
+        interface = entry.get("ifname")
+        address_info = entry.get("addr_info")
+        if not isinstance(interface, str) or not isinstance(address_info, list):
+            raise FirewallPreflightError("firewall_network_inventory_unavailable")
+        addresses: list[str] = []
+        for address in address_info:
+            if not isinstance(address, dict) or not isinstance(address.get("local"), str):
+                raise FirewallPreflightError("firewall_network_inventory_unavailable")
+            try:
+                addresses.append(str(ipaddress.ip_address(address["local"])))
+            except ValueError as error:
+                raise FirewallPreflightError("firewall_network_inventory_unavailable") from error
+        result[interface] = sorted(set(addresses))
+    return result
+
+
+def _bounded(values: list[str]) -> tuple[list[str], int, bool]:
+    """Bound list-valued error evidence while retaining its total count."""
+
+    return values[:MAX_OBSERVED_INTERFACES], len(values), len(values) > MAX_OBSERVED_INTERFACES
+
+
+def _validate_host_listeners(*, firewall: object) -> None:
+    """Reject host-bound firewall listeners absent from the live namespace."""
+
+    management = firewall.management_ssh
+    ingress = firewall.ingress
+    if management.interface == "any" and not ingress:
+        return
+    observed_interfaces = _interfaces()
+    bounded_interfaces, interface_count, interface_truncated = _bounded(observed_interfaces)
+
+    if management.interface != "any" and management.interface not in observed_interfaces:
+        raise FirewallPreflightError(
+            "firewall_management_interface_missing",
+            details={
+                "declared": management.interface,
+                "observed": bounded_interfaces,
+                "observed_count": interface_count,
+            },
+            truncated=interface_truncated,
+        )
+    for rule in ingress:
+        if rule.interface not in observed_interfaces:
+            raise FirewallPreflightError(
+                "firewall_ingress_interface_missing",
+                details={
+                    "service": rule.service,
+                    "declared": rule.interface,
+                    "observed": bounded_interfaces,
+                    "observed_count": interface_count,
+                },
+                truncated=interface_truncated,
+            )
+    if not ingress:
+        return
+
+    addresses_by_interface = _interface_addresses()
+    for rule in ingress:
+        observed_addresses = addresses_by_interface.get(rule.interface, [])
+        bounded_addresses, address_count, address_truncated = _bounded(observed_addresses)
+        if rule.bind_address not in observed_addresses:
+            raise FirewallPreflightError(
+                "firewall_ingress_bind_address_missing",
+                details={
+                    "service": rule.service,
+                    "interface": rule.interface,
+                    "bind_address": rule.bind_address,
+                    "observed": bounded_addresses,
+                    "observed_count": address_count,
+                },
+                truncated=address_truncated,
+            )
 
 
 def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
@@ -117,7 +213,7 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
         if firewall is None:
             result: dict[str, object] = {"status": "disabled"}
         else:
-            _validate_management_interface(interface=firewall.management_ssh.interface)
+            _validate_host_listeners(firewall=firewall)
             if args.command == "verify":
                 verify_firewall_policy(firewall=firewall, compose=args.compose.read_bytes())
                 result = {"status": "verified"}
@@ -145,7 +241,7 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
             compose=args.compose,
             error="registry_checkout_failed",
         ), 78
-    except ManagementInterfaceError as error:
+    except FirewallPreflightError as error:
         return _payload(
             command=args.command,
             registry=args.registry,
@@ -153,12 +249,8 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
             uuid=args.uuid,
             compose=args.compose,
             error=str(error),
-            error_details={
-                "declared": error.declared,
-                "observed": error.observed,
-                "observed_count": error.observed_count,
-            },
-            truncated=error.observed_count > len(error.observed),
+            error_details=error.details,
+            truncated=error.truncated,
         ), 78
     except (OSError, UnicodeDecodeError, FirewallError):
         return _payload(
