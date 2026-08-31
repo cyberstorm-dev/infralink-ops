@@ -33,7 +33,7 @@ def _commit_registry(registry: Path) -> str:
 
 def _host_network_inventory(entries: list[dict[str, object]]):
     def invoke(arguments: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        assert arguments == ["nsenter", "-t", "1", "-n", "ip", "-j", "address", "show"]
+        assert arguments == ["ip", "-j", "address", "show"]
         return subprocess.CompletedProcess(arguments, 0, stdout=json.dumps(entries), stderr="")
 
     return invoke

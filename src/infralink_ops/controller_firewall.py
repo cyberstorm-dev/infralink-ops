@@ -80,11 +80,16 @@ def _payload(
 
 
 def _interface_addresses() -> dict[str, list[str]]:
-    """Return concrete host-namespace addresses owned by each interface."""
+    """Return concrete host-network addresses owned by each interface.
+
+    The reconcile launcher uses Docker host networking, so this process already
+    sees the host namespace. Entering PID 1's namespace again is both redundant
+    and rejected by Docker's capability policy on some hosts.
+    """
 
     try:
         completed = run(
-            ["nsenter", "-t", "1", "-n", "ip", "-j", "address", "show"],
+            ["ip", "-j", "address", "show"],
             check=False,
             capture_output=True,
             text=True,
