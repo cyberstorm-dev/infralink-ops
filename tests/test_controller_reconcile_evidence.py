@@ -178,6 +178,42 @@ def test_write_failure_records_bounded_management_interface_evidence(tmp_path: P
     }
 
 
+def test_write_failure_records_bounded_ingress_listener_evidence(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    textfile_dir = tmp_path / "textfiles"
+    runtime_root.mkdir()
+    textfile_dir.mkdir()
+
+    completed = run_evidence(
+        "write-failure",
+        "--runtime-root",
+        str(runtime_root),
+        "--textfile-directory",
+        str(textfile_dir),
+        "--host-uuid",
+        HOST_UUID,
+        "--reason-code",
+        "firewall_ingress_bind_address_missing",
+        "--failure-details-json",
+        (
+            '{"service":"web","interface":"enp6s0",'
+            '"bind_address":"203.0.113.10","observed":[],"observed_count":0}'
+        ),
+        "--observed-at",
+        OBSERVED_AT,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    record = yaml.safe_load((runtime_root / "reconcile-result.yml").read_text())
+    assert record["failure"] == {
+        "service": "web",
+        "interface": "enp6s0",
+        "bind_address": "203.0.113.10",
+        "observed": [],
+        "observed_count": 0,
+    }
+
+
 def test_write_failure_rejects_raw_adapter_stderr_without_mutating_evidence(tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime"
     textfile_dir = tmp_path / "textfiles"

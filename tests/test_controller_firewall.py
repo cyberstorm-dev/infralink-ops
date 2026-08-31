@@ -200,6 +200,195 @@ def test_render_rejects_a_missing_management_interface_before_emitting_rules(
     }
 
 
+def test_verify_rejects_a_missing_declared_ingress_interface(tmp_path: Path, monkeypatch) -> None:
+    import infralink_ops.controller_firewall as controller_firewall
+
+    registry = tmp_path / "registry"
+    uuid = "00000000-0000-4000-8000-000000000001"
+    _deployment(
+        registry,
+        uuid,
+        """firewall:
+  backend: nftables
+  mode: default-deny
+  management_ssh:
+    port: 22
+    interface: any
+    sources: [100.64.0.0/10]
+  ingress:
+  - service: web
+    protocol: tcp
+    ports: [443]
+    interface: eth0
+    bind_address: 203.0.113.10
+    sources: [203.0.113.0/24]
+""",
+    )
+    revision = _commit_registry(registry)
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+    monkeypatch.setattr(controller_firewall.socket, "if_nameindex", lambda: [(1, "enp6s0")])
+    monkeypatch.setattr(
+        controller_firewall,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            _args, 0, stdout='[{"ifname":"enp6s0","addr_info":[]}]', stderr=""
+        ),
+    )
+    monkeypatch.setattr(controller_firewall, "verify_firewall_policy", lambda **_kwargs: None)
+
+    payload, status = controller_firewall.main(
+        [
+            "verify",
+            "--registry",
+            str(registry),
+            "--registry-revision",
+            revision,
+            "--uuid",
+            uuid,
+            "--compose",
+            str(compose),
+        ]
+    )
+
+    assert status == 78
+    assert payload["error"] == {
+        "code": "firewall_ingress_interface_missing",
+        "details": {
+            "service": "web",
+            "declared": "eth0",
+            "observed": ["enp6s0"],
+            "observed_count": 1,
+        },
+    }
+
+
+def test_verify_rejects_an_ingress_bind_address_absent_from_its_interface(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import infralink_ops.controller_firewall as controller_firewall
+
+    registry = tmp_path / "registry"
+    uuid = "00000000-0000-4000-8000-000000000001"
+    _deployment(
+        registry,
+        uuid,
+        """firewall:
+  backend: nftables
+  mode: default-deny
+  management_ssh:
+    port: 22
+    interface: any
+    sources: [100.64.0.0/10]
+  ingress:
+  - service: web
+    protocol: tcp
+    ports: [443]
+    interface: enp6s0
+    bind_address: 203.0.113.10
+    sources: [203.0.113.0/24]
+""",
+    )
+    revision = _commit_registry(registry)
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+    monkeypatch.setattr(controller_firewall.socket, "if_nameindex", lambda: [(1, "enp6s0")])
+    monkeypatch.setattr(
+        controller_firewall,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            _args, 0, stdout='[{"ifname":"enp6s0","addr_info":[]}]', stderr=""
+        ),
+    )
+    monkeypatch.setattr(controller_firewall, "verify_firewall_policy", lambda **_kwargs: None)
+
+    payload, status = controller_firewall.main(
+        [
+            "verify",
+            "--registry",
+            str(registry),
+            "--registry-revision",
+            revision,
+            "--uuid",
+            uuid,
+            "--compose",
+            str(compose),
+        ]
+    )
+
+    assert status == 78
+    assert payload["error"] == {
+        "code": "firewall_ingress_bind_address_missing",
+        "details": {
+            "service": "web",
+            "interface": "enp6s0",
+            "bind_address": "203.0.113.10",
+            "observed": [],
+            "observed_count": 0,
+        },
+    }
+
+
+def test_verify_accepts_an_ingress_bind_address_owned_by_its_interface(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import infralink_ops.controller_firewall as controller_firewall
+
+    registry = tmp_path / "registry"
+    uuid = "00000000-0000-4000-8000-000000000001"
+    _deployment(
+        registry,
+        uuid,
+        """firewall:
+  backend: nftables
+  mode: default-deny
+  management_ssh:
+    port: 22
+    interface: any
+    sources: [100.64.0.0/10]
+  ingress:
+  - service: web
+    protocol: tcp
+    ports: [443]
+    interface: enp6s0
+    bind_address: 203.0.113.10
+    sources: [203.0.113.0/24]
+""",
+    )
+    revision = _commit_registry(registry)
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+    monkeypatch.setattr(controller_firewall.socket, "if_nameindex", lambda: [(1, "enp6s0")])
+    monkeypatch.setattr(
+        controller_firewall,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            _args,
+            0,
+            stdout=('[{"ifname":"enp6s0","addr_info":[{"local":"203.0.113.10"}]}]'),
+            stderr="",
+        ),
+    )
+    monkeypatch.setattr(controller_firewall, "verify_firewall_policy", lambda **_kwargs: None)
+
+    payload, status = controller_firewall.main(
+        [
+            "verify",
+            "--registry",
+            str(registry),
+            "--registry-revision",
+            revision,
+            "--uuid",
+            uuid,
+            "--compose",
+            str(compose),
+        ]
+    )
+
+    assert status == 0
+    assert payload["result"] == {"status": "verified"}
+
+
 def test_render_bounds_observed_interfaces_in_management_interface_failure(
     tmp_path: Path, monkeypatch
 ) -> None:

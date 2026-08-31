@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import re
 import sys
@@ -26,6 +27,8 @@ SCHEMA_VERSION = "infralink.ops.controller-reconcile-evidence/v1"
 _GIT_SHA = re.compile(r"[0-9a-f]{40}")
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 _REASON_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+_SERVICE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
+_INTERFACE = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 
 
 class EvidenceError(ValueError):
@@ -51,6 +54,15 @@ def _json_mapping(value: str, error_code: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise EvidenceError(error_code)
     return parsed
+
+
+def _canonical_ip(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return str(ipaddress.ip_address(value)) == value
+    except ValueError:
+        return False
 
 
 def _validate_common(args: argparse.Namespace) -> None:
@@ -118,21 +130,56 @@ def _validated_failure_details(value: str | None, *, reason_code: str) -> dict[s
     if value is None:
         return None
     details = _json_mapping(value, "failure_details_invalid")
-    if reason_code == "firewall_management_interface_missing":
-        if set(details) != {"declared", "observed", "observed_count"}:
+    if reason_code in {
+        "firewall_management_interface_missing",
+        "firewall_ingress_interface_missing",
+    }:
+        expected = {"declared", "observed", "observed_count"}
+        if reason_code == "firewall_ingress_interface_missing":
+            expected.add("service")
+        if set(details) != expected:
             raise EvidenceError("failure_details_invalid")
         declared = details["declared"]
         observed = details["observed"]
         observed_count = details["observed_count"]
         if (
             not isinstance(declared, str)
-            or re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", declared) is None
+            or _INTERFACE.fullmatch(declared) is None
             or not isinstance(observed, list)
             or len(observed) > 32
             or any(
-                not isinstance(item, str) or re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", item) is None
-                for item in observed
+                not isinstance(item, str) or _INTERFACE.fullmatch(item) is None for item in observed
             )
+            or not isinstance(observed_count, int)
+            or isinstance(observed_count, bool)
+            or observed_count < len(observed)
+            or (
+                reason_code == "firewall_ingress_interface_missing"
+                and (
+                    not isinstance(details["service"], str)
+                    or _SERVICE.fullmatch(details["service"]) is None
+                )
+            )
+        ):
+            raise EvidenceError("failure_details_invalid")
+        return details
+    if reason_code == "firewall_ingress_bind_address_missing":
+        if set(details) != {"service", "interface", "bind_address", "observed", "observed_count"}:
+            raise EvidenceError("failure_details_invalid")
+        service = details["service"]
+        interface = details["interface"]
+        bind_address = details["bind_address"]
+        observed = details["observed"]
+        observed_count = details["observed_count"]
+        if (
+            not isinstance(service, str)
+            or _SERVICE.fullmatch(service) is None
+            or not isinstance(interface, str)
+            or _INTERFACE.fullmatch(interface) is None
+            or not _canonical_ip(bind_address)
+            or not isinstance(observed, list)
+            or len(observed) > 32
+            or any(not _canonical_ip(item) for item in observed)
             or not isinstance(observed_count, int)
             or isinstance(observed_count, bool)
             or observed_count < len(observed)
