@@ -41,11 +41,8 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY src ./src
-# Infralink is not published to a package index; pin the controller build input
-# while pyproject.toml expresses the supported 0.6.x compatibility range.
-RUN python -m pip install --disable-pip-version-check --no-cache-dir \
-        'infralink @ https://github.com/cyberstorm-dev/infralink/releases/download/v0.6.14/infralink-0.6.14-py3-none-any.whl#sha256=e41e16e082df50d7506785feb40dc3ea48087d46c391e31f2bd77e3ef81ce0e3' \
-    && python -m pip install --disable-pip-version-check --no-cache-dir . \
+# Resolve the published Infralink dependency declared in pyproject.toml.
+RUN python -m pip install --disable-pip-version-check --no-cache-dir . \
     && command -v infralink-controller-registry-checkout \
     && command -v infralink-controller-adapter \
     && command -v infralink-controller-runtime-directories \

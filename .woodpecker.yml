@@ -16,16 +16,12 @@ steps:
     commands:
       - sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources
       - apt-get update && apt-get install --yes --no-install-recommends git && rm -rf /var/lib/apt/lists/*
-      # Infralink is distributed from GitHub rather than a package index. Keep this
-      # CI fixture deterministic while the package declaration admits 0.6.x.
-      - python -m pip install --disable-pip-version-check 'infralink @ https://github.com/cyberstorm-dev/infralink/releases/download/v0.6.14/infralink-0.6.14-py3-none-any.whl#sha256=e41e16e082df50d7506785feb40dc3ea48087d46c391e31f2bd77e3ef81ce0e3'
       - python -m pip install --disable-pip-version-check -e '.[dev]'
       - python -m ruff check src tests
       - python -m ruff format --check src tests
       - python -m pytest -q
       - python -m build
       - python -m venv /tmp/infralink-ops-wheel
-      - /tmp/infralink-ops-wheel/bin/pip install --disable-pip-version-check 'infralink @ https://github.com/cyberstorm-dev/infralink/releases/download/v0.6.14/infralink-0.6.14-py3-none-any.whl#sha256=e41e16e082df50d7506785feb40dc3ea48087d46c391e31f2bd77e3ef81ce0e3'
       - /tmp/infralink-ops-wheel/bin/pip install --disable-pip-version-check dist/*.whl
       - cd /tmp && /tmp/infralink-ops-wheel/bin/python -c 'import infralink_ops'
 
