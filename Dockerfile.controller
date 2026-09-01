@@ -57,4 +57,4 @@ RUN python -m pip install --disable-pip-version-check --no-cache-dir \
     && command -v infralink-controller-reference \
     && command -v infralink-controller-template-dependencies
 
-CMD ["infralink-ops", "--help"]
+ENTRYPOINT ["python", "-m", "infralink_ops.controller_runtime"]

@@ -188,7 +188,7 @@ def _validated_failure_details(value: str | None, *, reason_code: str) -> dict[s
         return details
     if set(details) != {"stage", "exit_code", "diagnostic_code"}:
         raise EvidenceError("failure_details_invalid")
-    if details["stage"] != "adapter":
+    if not isinstance(details["stage"], str) or _REASON_CODE.fullmatch(details["stage"]) is None:
         raise EvidenceError("failure_details_invalid")
     if (
         not isinstance(details["exit_code"], int)
