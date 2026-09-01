@@ -32,7 +32,8 @@ def test_ops_has_no_standalone_public_cli_entrypoint() -> None:
     assert "infralink-controller-config-consumers" not in scripts
 
 
-def test_controller_metrics_is_private_to_reconcile_evidence() -> None:
+def test_controller_reconcile_evidence_is_private_to_runtime() -> None:
     scripts = Path("pyproject.toml").read_text(encoding="utf-8")
 
     assert "infralink-controller-metrics" not in scripts
+    assert "infralink-controller-reconcile-evidence" not in scripts
