@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import subprocess
-from importlib.metadata import entry_points
 from pathlib import Path
 
 import pytest
@@ -28,12 +27,10 @@ def _commit_registry(registry: Path) -> str:
     ).strip()
 
 
-def test_installs_template_dependency_runnable() -> None:
-    scripts = entry_points(group="console_scripts")
-    command = next(
-        entry for entry in scripts if entry.name == "infralink-controller-template-dependencies"
-    )
-    assert command.value == "infralink_ops.template_dependencies:cli"
+def test_template_dependencies_are_private_controller_runtime_code() -> None:
+    project = Path(__file__).resolve().parents[1] / "pyproject.toml"
+
+    assert "infralink-controller-template-dependencies" not in project.read_text(encoding="utf-8")
 
 
 def test_discovers_nested_and_relative_jinja_template_dependencies(tmp_path: Path) -> None:

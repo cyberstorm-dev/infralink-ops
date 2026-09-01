@@ -143,4 +143,4 @@ def test_rejects_matching_digest_from_a_different_repository(tmp_path: Path) -> 
 def test_protected_transition_validator_has_no_console_script() -> None:
     project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
 
-    assert "infralink-controller-protected-transitions" not in project["project"]["scripts"]
+    assert "infralink-controller-protected-transitions" not in project["project"].get("scripts", {})

@@ -39,7 +39,7 @@
 - Modify: `README.md`
 
 - [ ] Write failing tests for `render` and `verify` commands using explicit `--registry`, `--uuid`, and `--compose` inputs.
-- [ ] Implement YAML envelope output and register `infralink-controller-firewall`.
+- [ ] Implement YAML envelope output in the controller firewall primitive.
 - [ ] Add the public runtime boundary to README; do not document private host names, paths, BWS, Git, or controller selectors.
 - [ ] Run full tests, Ruff, build, and `git diff --check`; open a PR against issue #53 for independent review.
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-from importlib.metadata import entry_points
 from pathlib import Path
 
 import pytest
@@ -126,15 +125,9 @@ def test_resolve_controller_reference_uses_declared_sha_then_head_branch(tmp_pat
     )
 
 
-def test_installs_controller_image_resolution_runnable() -> None:
-    scripts = entry_points(group="console_scripts")
-    command = next(
-        entry for entry in scripts if entry.name == "infralink-controller-image-resolution"
-    )
-    assert command.value == "infralink_ops.image_resolution:main"
+def test_controller_image_resolution_is_private_runtime_code() -> None:
+    project = Path(__file__).resolve().parents[1] / "pyproject.toml"
 
-
-def test_installs_controller_reference_runnable() -> None:
-    scripts = entry_points(group="console_scripts")
-    command = next(entry for entry in scripts if entry.name == "infralink-controller-reference")
-    assert command.value == "infralink_ops.image_resolution:controller_reference_main"
+    project_text = project.read_text(encoding="utf-8")
+    assert "infralink-controller-image-resolution" not in project_text
+    assert "infralink-controller-reference" not in project_text

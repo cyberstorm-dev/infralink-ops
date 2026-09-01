@@ -377,14 +377,6 @@ def main(
     if arguments.command == "plan":
         result_payload = _payload(command="plan", result=result)
         result_payload["command"]["args"] = {"host_root": str(host_root)}
-        result_payload["next_actions"] = [
-            {
-                "rel": "apply",
-                "command": f"infralink-controller-bootstrap apply --host-root {host_root}",
-                "description": "Materialize the declared controller host interface",
-                "safe": False,
-            }
-        ]
         return result_payload, 0
     try:
         return _payload(command="apply", result=_apply(host_root, configuration)), 0

@@ -32,12 +32,12 @@ sequenceDiagram
 | Primitive | Command | Evidence |
 | --- | --- | --- |
 | Registry checkout | Controller-owned Registry checkout | Detached registry revision. |
-| Template rendering | `infralink-controller-template-render` | Rendered files from explicit inputs. |
+| Template rendering | Controller-owned template rendering | Rendered files from explicit inputs. |
 | Static config trees | `materialize_config_tree` | Changed paths below the declared target. |
 | Compose consumers | Controller-internal config-consumer activation | Affected consumers and services. |
-| Secrets | `infralink-controller-render-secrets` | BWS-backed rendered values without committing secrets. |
-| Firewall | `infralink-controller-firewall render\|verify` | Declared nftables table or runtime drift result. |
-| Doctor | `infralink-controller-doctor` | Read-only host consistency envelope. |
+| Secrets | Controller-owned secret rendering | BWS-backed rendered values without committing secrets. |
+| Firewall | Controller-owned firewall stage | Declared nftables table or runtime drift result. |
+| Doctor | `infralink controller doctor` | Read-only host consistency envelope. |
 
 ## BWS Contract
 
