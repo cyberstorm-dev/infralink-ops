@@ -259,6 +259,86 @@ def test_activate_recreates_stale_direct_file_bind(tmp_path: Path, monkeypatch) 
     assert f"compose -f {compose} up -d --no-deps --force-recreate nginx" in lines
 
 
+def test_activate_ignores_exited_direct_file_bind_consumer(tmp_path: Path, monkeypatch) -> None:
+    from infralink_ops.controller_config_consumers import main
+
+    deployment = tmp_path / "deployment.yml"
+    deployment.write_text("rendered_config_consumers: []\n", encoding="utf-8")
+    config_root = tmp_path / "config"
+    config_path = config_root / "postgres" / "provision.sh"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text("#!/bin/sh\n", encoding="utf-8")
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(
+        yaml.safe_dump(
+            {
+                "services": {
+                    "postgresql-provisioner": {
+                        "volumes": [
+                            f"{config_path}:/usr/local/bin/provision:ro",
+                        ]
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    log = tmp_path / "docker.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        '#!/usr/bin/env bash\nprintf \'%s\\n\' "$*" >> "$DOCKER_LOG"\n',
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake_bin}:{os.environ['PATH']}")
+    monkeypatch.setenv("DOCKER_LOG", str(log))
+
+    payload, status = main(
+        [
+            "activate",
+            "--deployment",
+            str(deployment),
+            "--compose",
+            str(compose),
+            "--config-root",
+            str(config_root),
+            "--changed-paths-json",
+            "[]",
+        ]
+    )
+
+    assert status == 0
+    assert payload["result"] == {"consumers": [], "services": []}
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        f"compose -f {compose} ps -q postgresql-provisioner"
+    ]
+
+    payload, status = main(
+        [
+            "activate",
+            "--deployment",
+            str(deployment),
+            "--compose",
+            str(compose),
+            "--config-root",
+            str(config_root),
+            "--changed-paths-json",
+            '["postgres/provision.sh"]',
+        ]
+    )
+
+    assert status == 0
+    assert payload["result"] == {
+        "consumers": [],
+        "services": ["postgresql-provisioner"],
+    }
+    assert log.read_text(encoding="utf-8").splitlines()[-1] == (
+        f"compose -f {compose} up -d --no-deps --force-recreate postgresql-provisioner"
+    )
+
+
 def test_rejects_malformed_consumer_declaration(tmp_path: Path) -> None:
     from infralink_ops.controller_config_consumers import main
 
