@@ -146,7 +146,7 @@ def _direct_file_bind_services(
     )
 
 
-def _container_file_matches(compose: Path, service: str, source: Path, target: str) -> bool:
+def _container_file_matches(compose: Path, service: str, source: Path, target: str) -> bool | None:
     listed = subprocess.run(
         ["docker", "compose", "-f", str(compose), "ps", "-q", service],
         text=True,
@@ -154,8 +154,12 @@ def _container_file_matches(compose: Path, service: str, source: Path, target: s
         check=False,
     )
     container_ids = list(dict.fromkeys(item for item in listed.stdout.splitlines() if item))
-    if listed.returncode or not container_ids:
+    if listed.returncode:
         raise ConfigConsumerError("direct_bind_inspection_failed")
+    # A completed one-shot service has no live bind mount to inspect. It can
+    # still be selected explicitly when its declared source changes.
+    if not container_ids:
+        return None
     declared = source.read_bytes()
     for container_id in container_ids:
         with tempfile.TemporaryDirectory() as temporary:
@@ -181,7 +185,7 @@ def _stale_direct_file_bind_services(
             service
             for service, source, target in _direct_file_binds(compose, config_root)
             if service not in skipped
-            if not _container_file_matches(compose, service, source, target)
+            if _container_file_matches(compose, service, source, target) is False
         )
     )
 
