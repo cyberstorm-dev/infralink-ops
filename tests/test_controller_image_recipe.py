@@ -30,3 +30,9 @@ def test_ops_has_no_standalone_public_cli_entrypoint() -> None:
 
     assert 'infralink-ops = "infralink_ops.cli:run"' not in scripts
     assert not Path("Dockerfile.ops").exists()
+
+
+def test_controller_metrics_is_private_to_reconcile_evidence() -> None:
+    scripts = Path("pyproject.toml").read_text(encoding="utf-8")
+
+    assert "infralink-controller-metrics" not in scripts
