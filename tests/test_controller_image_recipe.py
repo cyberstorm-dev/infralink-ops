@@ -23,3 +23,10 @@ def test_controller_image_is_a_public_ops_runtime() -> None:
     assert "COPY src ./src" in recipe
     for private_tree in ("COPY ansible", "COPY lib", "COPY monitoring", "COPY scripts"):
         assert private_tree not in recipe
+
+
+def test_ops_has_no_standalone_public_cli_entrypoint() -> None:
+    scripts = Path("pyproject.toml").read_text(encoding="utf-8")
+
+    assert 'infralink-ops = "infralink_ops.cli:run"' not in scripts
+    assert not Path("Dockerfile.ops").exists()
