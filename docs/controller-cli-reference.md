@@ -35,7 +35,7 @@ not a new operator workflow.
 | --- | --- | --- | --- |
 | `infralink-controller-registry-checkout` | Fetch a configured Registry ref into a clean checkout | Yes, controller checkout only | Host runtime configuration and Registry transport contract |
 | `infralink-controller-template-render` | Render declared templates | Yes, declared rendered target only | Registry declarations and controller-provided values |
-| `infralink-controller-config-consumers` | Validate or activate affected Compose consumers | Yes | Rendered controller-owned config change set |
+| Config-consumer activation | Validate or activate affected Compose consumers | Yes | Rendered controller-owned config change set |
 | `infralink-controller-render-secrets` | Resolve declared BWS render bindings | Yes, rendered target only | Registry-declared binding and runtime BWS access |
 | `infralink-controller-firewall` | Render or verify declared firewall policy | Render is local; apply behavior is controller-owned | Registry firewall declaration |
 | `infralink-controller-doctor` | Collect host consistency evidence | No | Controller runtime evidence paths |

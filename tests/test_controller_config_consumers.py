@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 from pathlib import Path
 
 import yaml
@@ -196,7 +194,6 @@ def test_activate_rejects_missing_managed_direct_file_bind(tmp_path: Path, monke
     assert status == 78
     assert payload["error"] == {"code": "config_consumers_failed"}
     assert not log.exists()
-
 
 def test_activate_recreates_stale_direct_file_bind(tmp_path: Path, monkeypatch) -> None:
     from infralink_ops.controller_config_consumers import main
@@ -419,43 +416,3 @@ def test_rejects_relative_config_root_before_docker(tmp_path: Path, monkeypatch)
     assert status == 78
     assert payload["error"] == {"code": "config_consumers_failed"}
     assert not log.exists()
-
-
-def test_module_cli_emits_yaml_envelope_and_usage_error(tmp_path: Path) -> None:
-    deployment = tmp_path / "deployment.yml"
-    deployment.write_text("rendered_config_consumers: []\n", encoding="utf-8")
-    compose = tmp_path / "docker-compose.yml"
-    compose.write_text("services: {}\n", encoding="utf-8")
-    config_root = tmp_path / "config"
-    config_root.mkdir()
-
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "infralink_ops.controller_config_consumers",
-            "validate",
-            "--deployment",
-            str(deployment),
-            "--compose",
-            str(compose),
-            "--config-root",
-            str(config_root),
-            "--changed-paths-json",
-            "[]",
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    usage = subprocess.run(
-        [sys.executable, "-m", "infralink_ops.controller_config_consumers"],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    assert completed.returncode == 0
-    assert yaml.safe_load(completed.stdout)["schema_version"] == "infralink.ops.config-consumers/v1"
-    assert usage.returncode == 64
-    assert yaml.safe_load(usage.stdout)["error"] == {"code": "usage_error"}

@@ -34,7 +34,7 @@ sequenceDiagram
 | Registry checkout | `infralink-controller-registry-checkout fetch` | Detached registry revision. |
 | Template rendering | `infralink-controller-template-render` | Rendered files from explicit inputs. |
 | Static config trees | `materialize_config_tree` | Changed paths below the declared target. |
-| Compose consumers | `infralink-controller-config-consumers validate\|activate` | Affected consumers and services. |
+| Compose consumers | Controller-internal config-consumer activation | Affected consumers and services. |
 | Secrets | `infralink-controller-render-secrets` | BWS-backed rendered values without committing secrets. |
 | Firewall | `infralink-controller-firewall render\|verify` | Declared nftables table or runtime drift result. |
 | Doctor | `infralink-controller-doctor` | Read-only host consistency envelope. |
