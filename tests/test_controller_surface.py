@@ -54,7 +54,7 @@ def test_controller_surface_manifest_has_the_declared_entry_point() -> None:
         build_app(),
         factory="infralink_ops.controller_surface:build_app",
         distribution_name="infralink-ops",
-        distribution_version="0.2.84",
+        distribution_version="0.2.85",
     )
 
     assert [item["path"] for item in manifest["operations"]] == [["controller", "doctor"]]

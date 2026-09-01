@@ -7,7 +7,6 @@ def test_controller_image_is_a_public_ops_runtime() -> None:
     assert recipe.startswith("FROM python@sha256:")
 
     for command in (
-        "infralink-controller-registry-checkout",
         "infralink-controller-adapter",
         "infralink-controller-runtime-directories",
         "infralink-controller-host-interface",
@@ -37,3 +36,4 @@ def test_controller_reconcile_evidence_is_private_to_runtime() -> None:
 
     assert "infralink-controller-metrics" not in scripts
     assert "infralink-controller-reconcile-evidence" not in scripts
+    assert "infralink-controller-registry-checkout" not in scripts
