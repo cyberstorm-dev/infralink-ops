@@ -1,60 +1,42 @@
 """Operational runtime for direct Infralink registry projections."""
 
-from infralink_ops.artifact_target_install import (
-    ArtifactTargetDurabilityUncertainError,
-    ArtifactTargetError,
-    ArtifactTargetResult,
-    install_artifact_body,
-)
-from infralink_ops.bounded_process import (
-    BoundedProcessFailure,
-    BoundedProcessResult,
-    run_bounded_process,
-)
-from infralink_ops.config_trees import (
-    ConfigTreeResult,
-    materialize_config_tree,
-    preflight_config_trees,
-)
-from infralink_ops.dashboards import load_registry_dashboards
-from infralink_ops.declared_file_destination import (
-    DeclaredFileDestinationError,
-    classify_declared_file_destination,
-    repair_empty_declared_file_destination,
-)
-from infralink_ops.egress_snat import (
-    EgressSnatError,
-    EgressSnatRule,
-    EgressSnatSnapshot,
-    capture_egress_snat,
-    reconcile_egress_snat,
-    restore_egress_snat,
-)
-from infralink_ops.observation import project_registry_observation
-from infralink_ops.stable_regular_file import StableRegularFileError, read_stable_regular_file
+from __future__ import annotations
 
-__all__ = [
-    "ConfigTreeResult",
-    "ArtifactTargetDurabilityUncertainError",
-    "ArtifactTargetError",
-    "ArtifactTargetResult",
-    "BoundedProcessFailure",
-    "BoundedProcessResult",
-    "DeclaredFileDestinationError",
-    "EgressSnatError",
-    "EgressSnatRule",
-    "EgressSnatSnapshot",
-    "capture_egress_snat",
-    "classify_declared_file_destination",
-    "load_registry_dashboards",
-    "install_artifact_body",
-    "materialize_config_tree",
-    "preflight_config_trees",
-    "project_registry_observation",
-    "repair_empty_declared_file_destination",
-    "run_bounded_process",
-    "StableRegularFileError",
-    "read_stable_regular_file",
-    "reconcile_egress_snat",
-    "restore_egress_snat",
-]
+from importlib import import_module
+from typing import Any
+
+_EXPORTS = {
+    "ArtifactTargetDurabilityUncertainError": "artifact_target_install",
+    "ArtifactTargetError": "artifact_target_install",
+    "ArtifactTargetResult": "artifact_target_install",
+    "BoundedProcessFailure": "bounded_process",
+    "BoundedProcessResult": "bounded_process",
+    "ConfigTreeResult": "config_trees",
+    "DeclaredFileDestinationError": "declared_file_destination",
+    "EgressSnatError": "egress_snat",
+    "EgressSnatRule": "egress_snat",
+    "EgressSnatSnapshot": "egress_snat",
+    "StableRegularFileError": "stable_regular_file",
+    "capture_egress_snat": "egress_snat",
+    "classify_declared_file_destination": "declared_file_destination",
+    "install_artifact_body": "artifact_target_install",
+    "load_registry_dashboards": "dashboards",
+    "materialize_config_tree": "config_trees",
+    "preflight_config_trees": "config_trees",
+    "project_registry_observation": "observation",
+    "read_stable_regular_file": "stable_regular_file",
+    "reconcile_egress_snat": "egress_snat",
+    "repair_empty_declared_file_destination": "declared_file_destination",
+    "restore_egress_snat": "egress_snat",
+    "run_bounded_process": "bounded_process",
+}
+
+__all__ = sorted(_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:
+    """Load optional runtime helpers only when their public compatibility export is used."""
+    module_name = _EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(name)
+    return getattr(import_module(f"infralink_ops.{module_name}"), name)
