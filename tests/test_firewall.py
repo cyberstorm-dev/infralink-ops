@@ -58,14 +58,16 @@ def test_render_firewall_policy_emits_declared_tailnet_ingress() -> None:
         b'    iifname "docker0" tcp dport 53 accept\n'
         b'    iifname "br-*" tcp dport 53 accept\n'
         b'    iifname "tailscale0" ip saddr 100.64.0.0/10 tcp dport 22 accept\n'
-        b'    iifname "tailscale0" ip saddr 100.64.0.0/10 tcp dport 8443 accept\n'
+        b'    iifname "tailscale0" ip saddr 100.64.0.0/10 '
+        b"ip daddr 100.64.0.10 tcp dport 8443 accept\n"
         b"  }\n"
         b"  chain forward {\n"
         b"    type filter hook forward priority filter; policy drop;\n"
         b"    ct state established,related accept\n"
         b'    iifname "docker0" accept\n'
         b'    iifname "br-*" accept\n'
-        b'    iifname "tailscale0" ip saddr 100.64.0.0/10 tcp dport 8443 accept\n'
+        b'    iifname "tailscale0" ip saddr 100.64.0.0/10 '
+        b"ct original ip daddr 100.64.0.10 tcp dport 8443 accept\n"
         b"  }\n"
         b"}\n"
     )
@@ -76,6 +78,53 @@ def test_render_firewall_policy_emits_declared_tailnet_ingress() -> None:
     assert rendered.count(b' iifname "br-*" tcp dport 53 accept') == 1
     assert b' iifname "docker0" accept\n' in rendered
     assert b' iifname "br-*" accept\n' in rendered
+
+
+def test_render_firewall_policy_constrains_ipv6_ingress_to_bind_address() -> None:
+    from infralink_ops.firewall import render_firewall_policy
+
+    firewall = FirewallPolicy.model_validate(
+        {
+            "backend": "nftables",
+            "mode": "default-deny",
+            "management_ssh": {
+                "port": 22,
+                "interface": "tailscale0",
+                "sources": ["100.64.0.0/10"],
+            },
+            "ingress": [
+                {
+                    "service": "api",
+                    "protocol": "tcp",
+                    "ports": [8443],
+                    "interface": "eth0",
+                    "bind_address": "2001:db8::10",
+                    "sources": ["2001:db8:100::/64"],
+                }
+            ],
+        }
+    )
+
+    rendered = render_firewall_policy(
+        firewall=firewall,
+        compose=(
+            b"services:\n"
+            b"  api:\n"
+            b"    image: example/api\n"
+            b"    ports:\n"
+            b"      - '[2001:db8::10]:8443:8443/tcp'\n"
+        ),
+    )
+
+    input_rule = (
+        b'iifname "eth0" ip6 saddr 2001:db8:100::/64 ip6 daddr 2001:db8::10 tcp dport 8443 accept\n'
+    )
+    forward_rule = (
+        b'iifname "eth0" ip6 saddr 2001:db8:100::/64 '
+        b"ct original ip6 daddr 2001:db8::10 tcp dport 8443 accept\n"
+    )
+    assert rendered.count(input_rule) == 1
+    assert rendered.count(forward_rule) == 1
 
 
 def test_load_firewall_policy_accepts_a_host_without_firewall_declaration(tmp_path: Path) -> None:
