@@ -195,6 +195,7 @@ def test_activate_rejects_missing_managed_direct_file_bind(tmp_path: Path, monke
     assert payload["error"] == {"code": "config_consumers_failed"}
     assert not log.exists()
 
+
 def test_activate_recreates_stale_direct_file_bind(tmp_path: Path, monkeypatch) -> None:
     from infralink_ops.controller_config_consumers import main
 
