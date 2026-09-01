@@ -31,7 +31,7 @@ sequenceDiagram
 
 | Primitive | Command | Evidence |
 | --- | --- | --- |
-| Registry checkout | `infralink-controller-registry-checkout fetch` | Detached registry revision. |
+| Registry checkout | Controller-owned Registry checkout | Detached registry revision. |
 | Template rendering | `infralink-controller-template-render` | Rendered files from explicit inputs. |
 | Static config trees | `materialize_config_tree` | Changed paths below the declared target. |
 | Compose consumers | Controller-internal config-consumer activation | Affected consumers and services. |

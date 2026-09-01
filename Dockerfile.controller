@@ -43,7 +43,6 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 # Resolve the published Infralink dependency declared in pyproject.toml.
 RUN python -m pip install --disable-pip-version-check --no-cache-dir . \
-    && command -v infralink-controller-registry-checkout \
     && command -v infralink-controller-adapter \
     && command -v infralink-controller-runtime-directories \
     && command -v infralink-controller-host-interface \

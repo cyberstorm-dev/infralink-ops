@@ -58,7 +58,7 @@ def test_readme_is_operator_entrypoint() -> None:
         "## Verify Changes",
         "## Triage A Stale Host",
         "[Controller runtime guide](docs/controller-runtime-guide.md)",
-        "infralink-controller-registry-checkout fetch",
+        "Controller-owned Registry checkout",
         "Controller-internal config-consumer activation",
         "infralink-controller-render-secrets",
         "infralink-controller-doctor",
@@ -152,7 +152,7 @@ def test_controller_cli_reference_groups_commands_by_authority() -> None:
         "`infralink`",
         "`infralink-host`",
         "`infralink-controller-doctor`",
-        "`infralink-controller-registry-checkout`",
+        "Controller-owned Registry checkout",
         "`infralink-controller-template-render`",
         "Config-consumer activation",
         "`infralink-controller-render-secrets`",
@@ -232,6 +232,19 @@ def test_docs_do_not_recommend_legacy_relayos_staging_controller_paths() -> None
 
     assert "/opt/infra/registry" not in corpus
     assert "self-deploy.sh" not in corpus
+
+
+def test_docs_do_not_recommend_retired_registry_checkout_executable() -> None:
+    corpus = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in [
+            ROOT / "README.md",
+            ROOT / "docs" / "controller-runtime-guide.md",
+            ROOT / "docs" / "controller-cli-reference.md",
+        ]
+    )
+
+    assert "infralink-controller-registry-checkout" not in corpus
 
 
 def test_markdown_links_resolve_for_operator_docs() -> None:

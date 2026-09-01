@@ -33,7 +33,7 @@ not a new operator workflow.
 
 | Primitive | Lifecycle role | Mutates host state? | Input authority |
 | --- | --- | --- | --- |
-| `infralink-controller-registry-checkout` | Fetch a configured Registry ref into a clean checkout | Yes, controller checkout only | Host runtime configuration and Registry transport contract |
+| Controller-owned Registry checkout | Fetch a configured Registry ref into the sole clean checkout | Yes, controller checkout only | Host runtime configuration and Registry transport contract |
 | `infralink-controller-template-render` | Render declared templates | Yes, declared rendered target only | Registry declarations and controller-provided values |
 | Config-consumer activation | Validate or activate affected Compose consumers | Yes | Rendered controller-owned config change set |
 | `infralink-controller-render-secrets` | Resolve declared BWS render bindings | Yes, rendered target only | Registry-declared binding and runtime BWS access |

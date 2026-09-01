@@ -46,7 +46,7 @@ not own the registry data model or the environment-specific acceptance result.
 
 | Command | Purpose |
 | --- | --- |
-| `infralink-controller-registry-checkout fetch` | Fetch a declared registry ref into an existing clean checkout. |
+| Controller-owned Registry checkout | Fetch the declared Registry ref into the sole configured checkout. |
 | `infralink-controller-template-render` | Render registry-declared templates from explicit inputs. |
 | Controller-internal config-consumer activation | Validate or recreate services affected by rendered config changes. |
 | `infralink-controller-render-secrets` | Resolve registry-declared render-secret bindings through BWS. |
