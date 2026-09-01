@@ -395,7 +395,7 @@ literal `reconcile` command to the controller image. This repository's current
 `Dockerfile.controller` has no `ENTRYPOINT` dispatcher and has only
 `CMD ["infralink-ops", "--help"]`; it does not implement that reconcile command.
 The only discovered reconcile script is the legacy
-`infra-management/scripts/infralink-controller-reconcile`, which is outside
+legacy controller reconciliation under `infra-management/scripts/`, which is outside
 this repository and is a migration target. Do not wire this new producer into
 that legacy script or add a second runnable.
 
@@ -408,7 +408,7 @@ def test_reconcile_dispatches_to_the_private_ops_library_without_a_console_scrip
 
     assert completed.returncode == 0
     assert evidence_path.is_file()
-    assert "infralink-controller-prometheus" not in installed_console_scripts()
+    assert "controller-prometheus" not in installed_console_scripts()
 ```
 
 - [ ] **Step 2: Run the focused dispatch test**

@@ -41,15 +41,9 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY src ./src
-# Resolve the published Infralink dependency declared in pyproject.toml.
-RUN python -m pip install --disable-pip-version-check --no-cache-dir . \
-    && command -v infralink-controller-adapter \
-    && command -v infralink-controller-runtime-directories \
-    && command -v infralink-controller-host-interface \
-    && command -v infralink-controller-doctor \
-    && command -v infralink-controller-firewall \
-    && command -v infralink-controller-image-resolution \
-    && command -v infralink-controller-reference \
-    && command -v infralink-controller-template-dependencies
+# Resolve the published Infralink dependency declared in pyproject.toml. The
+# controller exposes no public Ops console scripts; its private runtime is the
+# image entrypoint and public operator calls use ``infralink``.
+RUN python -m pip install --disable-pip-version-check --no-cache-dir .
 
 ENTRYPOINT ["python", "-m", "infralink_ops.controller_runtime"]

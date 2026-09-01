@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "infralink-ops"
-version = "0.2.85"
+version = "0.2.86"
 description = "Operational runtime for direct Infralink registry projections"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,22 +16,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["build>=1.2", "pytest>=8.0", "ruff>=0.6", "twine>=6.0"]
-
-[project.scripts]
-infralink-controller-adapter = "infralink_ops.controller_adapter_runnable:cli"
-infralink-controller-runtime-directories = "infralink_ops.controller_runtime_directories:cli"
-infralink-controller-doctor = "infralink_ops.controller_doctor:cli"
-infralink-controller-render-secrets = "infralink_ops.controller_render_secrets:cli"
-infralink-controller-firewall = "infralink_ops.controller_firewall:cli"
-infralink-controller-image-resolution = "infralink_ops.image_resolution:main"
-infralink-controller-reference = "infralink_ops.image_resolution:controller_reference_main"
-infralink-controller-host-interface = "infralink_ops.controller_host_interface:cli"
-infralink-controller-template-dependencies = "infralink_ops.template_dependencies:cli"
-infralink-controller-template-source-dependencies = "infralink_ops.template_source_dependencies:cli"
-infralink-controller-template-render = "infralink_ops.template_renderer:cli"
-infralink-controller-artifact-bindings = "infralink_ops.typed_artifact_materializer:cli"
-infralink-controller-artifacts = "infralink_ops.controller_artifacts:cli"
-infralink-controller-bootstrap = "infralink_ops.controller_bootstrap:cli"
 
 [project.entry-points."infralink.commands"]
 controller = "infralink_ops.controller_surface:build_app"

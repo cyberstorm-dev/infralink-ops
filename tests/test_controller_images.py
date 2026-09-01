@@ -55,7 +55,7 @@ def test_prune_unused_images_is_bounded_when_docker_never_returns(tmp_path: Path
 def test_image_cleanup_is_private_to_controller_reconcile() -> None:
     project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
 
-    assert "infralink-controller-images" not in project["project"]["scripts"]
+    assert "infralink-controller-images" not in project["project"].get("scripts", {})
 
 
 def test_runtime_release_version_is_semver() -> None:

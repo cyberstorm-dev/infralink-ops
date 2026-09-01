@@ -3,9 +3,9 @@
 ## BLUF
 
 Operators normally use `infralink` for bounded inspection and `infralink-host`
-for the installed host interface. The `infralink-controller-*` commands are
-controller primitives: they receive explicit inputs from the configured runtime
-and should not be used as an alternate desired-state workflow. The Registry
+for the installed host interface. Controller primitives are private runtime
+modules: they receive explicit inputs from the configured runtime and should
+not be used as an alternate desired-state workflow. The Registry
 repository remains authoritative for topology, image selection, and promotion.
 
 ## Operator Entry Points
@@ -34,12 +34,12 @@ not a new operator workflow.
 | Primitive | Lifecycle role | Mutates host state? | Input authority |
 | --- | --- | --- | --- |
 | Controller-owned Registry checkout | Fetch a configured Registry ref into the sole clean checkout | Yes, controller checkout only | Host runtime configuration and Registry transport contract |
-| `infralink-controller-template-render` | Render declared templates | Yes, declared rendered target only | Registry declarations and controller-provided values |
+| Controller-owned template rendering | Render declared templates | Yes, declared rendered target only | Registry declarations and controller-provided values |
 | Config-consumer activation | Validate or activate affected Compose consumers | Yes | Rendered controller-owned config change set |
-| `infralink-controller-render-secrets` | Resolve declared BWS render bindings | Yes, rendered target only | Registry-declared binding and runtime BWS access |
-| `infralink-controller-firewall` | Render or verify declared firewall policy | Render is local; apply behavior is controller-owned | Registry firewall declaration |
-| `infralink-controller-doctor` | Collect host consistency evidence | No | Controller runtime evidence paths |
-| `infralink-controller-bootstrap` | Materialize host launcher and timer assets | Yes, explicit apply only | Approved bootstrap request |
+| Controller-owned secret rendering | Resolve declared BWS render bindings | Yes, rendered target only | Registry-declared binding and runtime BWS access |
+| Controller-owned firewall stage | Render or verify declared firewall policy | Render is local; apply behavior is controller-owned | Registry firewall declaration |
+| `infralink controller doctor` | Collect host consistency evidence | No | Controller runtime evidence paths |
+| Controller-owned bootstrap stage | Materialize host launcher and timer assets | Yes, explicit apply only | Approved bootstrap request |
 
 Supporting commands such as image resolution, image retention, runtime
 directories, artifact bindings, transport trust, protected transitions,

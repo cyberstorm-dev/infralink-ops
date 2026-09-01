@@ -60,8 +60,8 @@ def test_readme_is_operator_entrypoint() -> None:
         "[Controller runtime guide](docs/controller-runtime-guide.md)",
         "Controller-owned Registry checkout",
         "Controller-internal config-consumer activation",
-        "infralink-controller-render-secrets",
-        "infralink-controller-doctor",
+        "Controller-owned secret rendering",
+        "infralink controller doctor",
         "infralink-host doctor\\|reconcile\\|bootstrap --apply",
         "https://github.com/orgs/cyberstorm-dev/packages",
         "ghcr.io/cyberstorm-dev/infralink-ops-controller",
@@ -151,13 +151,13 @@ def test_controller_cli_reference_groups_commands_by_authority() -> None:
         "## Reading Structured Results",
         "`infralink`",
         "`infralink-host`",
-        "`infralink-controller-doctor`",
+        "`infralink controller doctor`",
         "Controller-owned Registry checkout",
-        "`infralink-controller-template-render`",
+        "Controller-owned template rendering",
         "Config-consumer activation",
-        "`infralink-controller-render-secrets`",
-        "`infralink-controller-firewall`",
-        "`infralink-controller-bootstrap`",
+        "Controller-owned secret rendering",
+        "Controller-owned firewall stage",
+        "Controller-owned bootstrap stage",
         "Registry repository",
         "not a desired-state selector",
     ]:
@@ -215,9 +215,9 @@ def test_controller_runtime_guide_documents_evidence_and_boundaries() -> None:
         "## BWS Contract",
         "## GHCR Contract",
         "## Triage A Stale Host",
-        "infralink-controller-template-render",
+        "Controller-owned template rendering",
         "materialize_config_tree",
-        "infralink-controller-firewall render\\|verify",
+        "Controller-owned firewall stage",
         "Use immutable `sha-<short-sha>` tags or digests for evidence",
         "Do not use `head` or `main` as acceptance evidence",
     ]:
@@ -234,17 +234,11 @@ def test_docs_do_not_recommend_legacy_relayos_staging_controller_paths() -> None
     assert "self-deploy.sh" not in corpus
 
 
-def test_docs_do_not_recommend_retired_registry_checkout_executable() -> None:
-    corpus = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in [
-            ROOT / "README.md",
-            ROOT / "docs" / "controller-runtime-guide.md",
-            ROOT / "docs" / "controller-cli-reference.md",
-        ]
-    )
+def test_docs_do_not_recommend_controller_private_executables() -> None:
+    documents = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
+    corpus = "\n".join(path.read_text(encoding="utf-8") for path in documents)
 
-    assert "infralink-controller-registry-checkout" not in corpus
+    assert "infralink-controller-" not in corpus
 
 
 def test_markdown_links_resolve_for_operator_docs() -> None:

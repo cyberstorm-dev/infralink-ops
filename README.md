@@ -47,11 +47,11 @@ not own the registry data model or the environment-specific acceptance result.
 | Command | Purpose |
 | --- | --- |
 | Controller-owned Registry checkout | Fetch the declared Registry ref into the sole configured checkout. |
-| `infralink-controller-template-render` | Render registry-declared templates from explicit inputs. |
+| Controller-owned template rendering | Render registry-declared templates from explicit inputs. |
 | Controller-internal config-consumer activation | Validate or recreate services affected by rendered config changes. |
-| `infralink-controller-render-secrets` | Resolve registry-declared render-secret bindings through BWS. |
-| `infralink-controller-firewall render\|verify` | Render or verify declared nftables policy. |
-| `infralink-controller-doctor` | Read-only host-runtime check for registry, reconcile, Compose, firewall, and metrics evidence. |
+| Controller-owned secret rendering | Resolve registry-declared render-secret bindings through BWS. |
+| Controller-owned firewall stage | Render or verify declared nftables policy. |
+| `infralink controller doctor` | Read-only host-runtime check for registry, reconcile, Compose, firewall, and metrics evidence. |
 | `infralink-host doctor\|reconcile\|bootstrap --apply` | Host launcher installed from [`src/infralink_ops/assets/infralink-host`](src/infralink_ops/assets/infralink-host). |
 
 Each command is intentionally narrow. Commands receive explicit inputs and

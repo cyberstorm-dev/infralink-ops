@@ -50,4 +50,6 @@ def test_rejects_missing_destination_parent(tmp_path: Path) -> None:
 def test_registry_transport_trust_writer_has_no_console_script() -> None:
     project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
 
-    assert "infralink-controller-registry-transport-trust" not in project["project"]["scripts"]
+    assert "infralink-controller-registry-transport-trust" not in project["project"].get(
+        "scripts", {}
+    )

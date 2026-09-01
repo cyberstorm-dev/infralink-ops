@@ -52,14 +52,7 @@ def test_plan_reports_exact_bootstrap_writes_without_mutating_host_root(tmp_path
                 "/etc/systemd/system/infralink-host-reconcile.timer",
             ],
         },
-        "next_actions": [
-            {
-                "rel": "apply",
-                "command": f"infralink-controller-bootstrap apply --host-root {host_root}",
-                "description": "Materialize the declared controller host interface",
-                "safe": False,
-            }
-        ],
+        "next_actions": [],
         "meta": {"truncated": False},
     }
     assert list(host_root.iterdir()) == []

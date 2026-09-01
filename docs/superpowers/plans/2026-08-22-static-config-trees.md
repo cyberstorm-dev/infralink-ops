@@ -197,7 +197,7 @@ gh pr create --repo cyberstorm-dev/infralink-ops --base main --head feat/config-
 ### Task 4: Delegate the Existing Controller Executor
 
 **Files:**
-- Modify: `infra-management/scripts/infralink-controller-artifacts.py`
+- Modify: the legacy artifact materialization script in `infra-management/scripts/`
 - Modify: `infra-management/scripts/tests/test_infralink_controller_artifacts.py`
 - Test: `infra-management/scripts/tests/test_infralink_controller_reconcile.py`
 
@@ -241,7 +241,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit and open the infra-management PR linked to #536**
 
 ```bash
-git add scripts/infralink-controller-artifacts.py scripts/tests/test_infralink_controller_artifacts.py scripts/tests/test_infralink_controller_reconcile.py
+git add scripts/ tests/
 git commit -m "feat: delegate static config trees to infralink ops"
 git push -u origin feat/config-tree-runtime-delegation
 gh pr create --repo relax-dot-gg/infra-management --base main --head feat/config-tree-runtime-delegation --title "feat: delegate static config trees to infralink ops" --body "Implements infra-management#536 using the generic infralink-ops runtime from cyberstorm-dev/infralink-ops#17."

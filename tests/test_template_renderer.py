@@ -117,10 +117,10 @@ def test_cli_renders_the_selected_registry_revision_and_emits_changed_paths(
     assert json.loads(capsys.readouterr().out) == {"changed_config_paths": ["app/settings.yml"]}
 
 
-def test_controller_template_renderer_is_a_released_ops_command() -> None:
+def test_controller_template_renderer_is_private_runtime_code() -> None:
     project = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
 
-    assert 'infralink-controller-template-render = "infralink_ops.template_renderer:cli"' in project
+    assert "infralink-controller-template-render" not in project
 
 
 @pytest.mark.parametrize("host_ref", ["../outside", "/tmp/outside-host"])
