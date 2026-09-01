@@ -23,3 +23,9 @@ def test_controller_image_is_a_public_ops_runtime() -> None:
     assert "COPY src ./src" in recipe
     for private_tree in ("COPY ansible", "COPY lib", "COPY monitoring", "COPY scripts"):
         assert private_tree not in recipe
+
+
+def test_reconcile_evidence_is_private_to_the_controller_runtime() -> None:
+    scripts = Path("pyproject.toml").read_text(encoding="utf-8")
+
+    assert "infralink-controller-reconcile-evidence" not in scripts
