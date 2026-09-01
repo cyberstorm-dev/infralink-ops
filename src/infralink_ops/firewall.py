@@ -127,8 +127,8 @@ def _source_expression(source: str) -> str:
 
 
 def _destination_expression(destination: str) -> str:
-    network = ipaddress.ip_network(destination)
-    return f"ip{'6' if network.version == 6 else ''} daddr {network}"
+    address = ipaddress.ip_address(destination)
+    return f"ip{'6' if address.version == 6 else ''} daddr {address}"
 
 
 def _interface_expression(interface: str) -> str:
@@ -157,6 +157,7 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
             for source in ingress.sources:
                 ingress_rules.append(
                     f'    iifname "{ingress.interface}" {_source_expression(source)} '
+                    f"{_destination_expression(ingress.bind_address)} "
                     f"{ingress.protocol} dport {port} accept"
                 )
     ingress_rules = list(dict.fromkeys(ingress_rules))
@@ -194,6 +195,7 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
 
     forward_rules = [
         f'    iifname "{ingress.interface}" {_source_expression(source)} '
+        f"ct original {_destination_expression(ingress.bind_address)} "
         f"{ingress.protocol} dport {entry.target_port} accept"
         for ingress in firewall.ingress
         for port in ingress.ports
