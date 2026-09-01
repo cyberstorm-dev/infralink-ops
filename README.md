@@ -48,7 +48,7 @@ not own the registry data model or the environment-specific acceptance result.
 | --- | --- |
 | `infralink-controller-registry-checkout fetch` | Fetch a declared registry ref into an existing clean checkout. |
 | `infralink-controller-template-render` | Render registry-declared templates from explicit inputs. |
-| `infralink-controller-config-consumers validate\|activate` | Validate or recreate services affected by rendered config changes. |
+| Controller-internal config-consumer activation | Validate or recreate services affected by rendered config changes. |
 | `infralink-controller-render-secrets` | Resolve registry-declared render-secret bindings through BWS. |
 | `infralink-controller-firewall render\|verify` | Render or verify declared nftables policy. |
 | `infralink-controller-doctor` | Read-only host-runtime check for registry, reconcile, Compose, firewall, and metrics evidence. |

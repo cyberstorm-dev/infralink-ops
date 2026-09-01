@@ -8,7 +8,6 @@ def test_controller_image_is_a_public_ops_runtime() -> None:
 
     for command in (
         "infralink-controller-registry-checkout",
-        "infralink-controller-config-consumers",
         "infralink-controller-adapter",
         "infralink-controller-runtime-directories",
         "infralink-controller-host-interface",
@@ -30,6 +29,7 @@ def test_ops_has_no_standalone_public_cli_entrypoint() -> None:
 
     assert 'infralink-ops = "infralink_ops.cli:run"' not in scripts
     assert not Path("Dockerfile.ops").exists()
+    assert "infralink-controller-config-consumers" not in scripts
 
 
 def test_controller_metrics_is_private_to_reconcile_evidence() -> None:

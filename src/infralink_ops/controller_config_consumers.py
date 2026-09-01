@@ -6,7 +6,6 @@ import argparse
 import json
 import re
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -226,7 +225,7 @@ def _payload(
 def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
     """Execute one explicit config-consumer operation."""
 
-    parser = EnvelopeParser(prog="infralink-controller-config-consumers")
+    parser = EnvelopeParser(prog="controller-config-consumers")
     commands = parser.add_subparsers(dest="command", required=True)
     for command in (commands.add_parser("validate"), commands.add_parser("activate")):
         command.add_argument("--deployment", required=True, type=Path)
@@ -318,15 +317,3 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
             "services": selected_services,
         },
     ), 0
-
-
-def cli() -> int:
-    """Write the YAML envelope for the installed controller executable."""
-
-    payload, status = main()
-    sys.stdout.write(yaml.safe_dump(payload, sort_keys=False))
-    return status
-
-
-if __name__ == "__main__":
-    raise SystemExit(cli())

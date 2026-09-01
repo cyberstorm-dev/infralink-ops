@@ -20,7 +20,6 @@ dev = ["build>=1.2", "pytest>=8.0", "ruff>=0.6", "twine>=6.0"]
 [project.scripts]
 infralink-controller-reconcile-evidence = "infralink_ops.controller_reconcile_evidence:main"
 infralink-controller-registry-checkout = "infralink_ops.controller_registry_checkout:main"
-infralink-controller-config-consumers = "infralink_ops.controller_config_consumers:cli"
 infralink-controller-adapter = "infralink_ops.controller_adapter_runnable:cli"
 infralink-controller-runtime-directories = "infralink_ops.controller_runtime_directories:cli"
 infralink-controller-doctor = "infralink_ops.controller_doctor:cli"
