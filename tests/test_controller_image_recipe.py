@@ -13,6 +13,12 @@ def test_controller_image_is_a_public_ops_runtime() -> None:
         assert private_tree not in recipe
 
 
+def test_controller_image_installs_iproute2_for_firewall_network_inventory() -> None:
+    recipe = Path("Dockerfile.controller").read_text(encoding="utf-8")
+
+    assert "iproute2" in recipe
+
+
 def test_ops_has_no_public_console_entrypoints() -> None:
     scripts = Path("pyproject.toml").read_text(encoding="utf-8")
 
