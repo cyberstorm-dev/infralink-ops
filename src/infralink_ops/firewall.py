@@ -152,6 +152,9 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
     declared: set[tuple[str, str, str, int]] = set()
     ingress_rules: list[str] = []
     for ingress in firewall.ingress:
+        bind_family = ipaddress.ip_address(ingress.bind_address).version
+        if any(ipaddress.ip_network(source).version != bind_family for source in ingress.sources):
+            raise FirewallError("firewall_ingress_source_family_mismatch")
         for port in ingress.ports:
             declared.add((ingress.service, ingress.protocol, ingress.bind_address, port))
             for source in ingress.sources:
@@ -164,37 +167,9 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
     if not {rule.service for rule in firewall.ingress}.issubset(services_seen):
         raise FirewallError("firewall_ingress_service_absent")
 
-    policies: dict[tuple[str, str, int], tuple[str, ...]] = {}
-    for ingress in firewall.ingress:
-        sources = tuple(sorted(ingress.sources))
-        for port in ingress.ports:
-            endpoint = (ingress.protocol, ingress.interface, port)
-            previous = policies.setdefault(endpoint, sources)
-            if previous != sources:
-                raise FirewallError("multi_address_ingress_policy_ambiguous")
-
     published_declarations = {entry for entry in declared if entry[0] not in host_networked}
     if observed != published_declarations:
         raise FirewallError("compose_published_port_ownership_mismatch")
-
-    ingress_by_publication = {
-        (ingress.service, ingress.protocol, ingress.bind_address, port): ingress
-        for ingress in firewall.ingress
-        for port in ingress.ports
-    }
-    # DNAT discards the destination address before the forward hook, but the
-    # incoming interface remains available. Distinct interfaces can therefore
-    # safely enforce distinct source policies for the same container port.
-    target_policies: dict[tuple[str, int, str], tuple[str, ...]] = {}
-    for entry in external:
-        ingress = ingress_by_publication[
-            (entry.service, entry.protocol, entry.host_address, entry.port)
-        ]
-        policy = tuple(sorted(ingress.sources))
-        target = (entry.protocol, entry.target_port, ingress.interface)
-        previous = target_policies.setdefault(target, policy)
-        if previous != policy:
-            raise FirewallError("published_target_ingress_ambiguous")
 
     forward_rules = [
         f'    iifname "{ingress.interface}" {_source_expression(source)} '
