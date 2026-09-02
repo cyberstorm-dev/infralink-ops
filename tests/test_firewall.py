@@ -80,6 +80,108 @@ def test_render_firewall_policy_emits_declared_tailnet_ingress() -> None:
     assert b' iifname "br-*" accept\n' in rendered
 
 
+def test_render_firewall_policy_allows_same_container_port_on_distinct_interfaces() -> None:
+    from infralink_ops.firewall import render_firewall_policy
+
+    firewall = FirewallPolicy.model_validate(
+        {
+            "backend": "nftables",
+            "mode": "default-deny",
+            "management_ssh": {
+                "port": 22,
+                "interface": "tailscale0",
+                "sources": ["100.64.0.0/10"],
+            },
+            "ingress": [
+                {
+                    "service": "smtp",
+                    "protocol": "tcp",
+                    "ports": [2125],
+                    "interface": "eth0",
+                    "bind_address": "5.161.17.242",
+                    "sources": ["0.0.0.0/1", "128.0.0.0/1"],
+                },
+                {
+                    "service": "smtp",
+                    "protocol": "tcp",
+                    "ports": [2125],
+                    "interface": "tailscale0",
+                    "bind_address": "100.127.45.55",
+                    "sources": ["100.64.0.0/10"],
+                },
+            ],
+        }
+    )
+
+    rendered = render_firewall_policy(
+        firewall=firewall,
+        compose=(
+            b"services:\n"
+            b"  smtp:\n"
+            b"    image: example/smtp\n"
+            b"    ports:\n"
+            b"      - 5.161.17.242:2125:25/tcp\n"
+            b"      - 100.127.45.55:2125:25/tcp\n"
+        ),
+    )
+
+    assert (
+        b'iifname "eth0" ip saddr 0.0.0.0/1 ct original ip daddr '
+        b"5.161.17.242 tcp dport 25 accept"
+    ) in rendered
+    assert (
+        b'iifname "tailscale0" ip saddr 100.64.0.0/10 ct original ip daddr '
+        b"100.127.45.55 tcp dport 25 accept"
+    ) in rendered
+
+
+def test_render_firewall_policy_rejects_different_sources_for_same_target_interface() -> None:
+    from infralink_ops.firewall import FirewallError, render_firewall_policy
+
+    firewall = FirewallPolicy.model_validate(
+        {
+            "backend": "nftables",
+            "mode": "default-deny",
+            "management_ssh": {
+                "port": 22,
+                "interface": "tailscale0",
+                "sources": ["100.64.0.0/10"],
+            },
+            "ingress": [
+                {
+                    "service": "smtp",
+                    "protocol": "tcp",
+                    "ports": [2125],
+                    "interface": "eth0",
+                    "bind_address": "5.161.17.242",
+                    "sources": ["0.0.0.0/1", "128.0.0.0/1"],
+                },
+                {
+                    "service": "smtp",
+                    "protocol": "tcp",
+                    "ports": [2126],
+                    "interface": "eth0",
+                    "bind_address": "5.161.26.199",
+                    "sources": ["10.0.0.0/8"],
+                },
+            ],
+        }
+    )
+
+    with pytest.raises(FirewallError, match="published_target_ingress_ambiguous"):
+        render_firewall_policy(
+            firewall=firewall,
+            compose=(
+                b"services:\n"
+                b"  smtp:\n"
+                b"    image: example/smtp\n"
+                b"    ports:\n"
+                b"      - 5.161.17.242:2125:25/tcp\n"
+                b"      - 5.161.26.199:2126:25/tcp\n"
+            ),
+        )
+
+
 def test_render_firewall_policy_constrains_ipv6_ingress_to_bind_address() -> None:
     from infralink_ops.firewall import render_firewall_policy
 
