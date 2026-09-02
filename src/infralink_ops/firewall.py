@@ -182,13 +182,16 @@ def render_firewall_policy(*, firewall: FirewallPolicy, compose: bytes) -> bytes
         for ingress in firewall.ingress
         for port in ingress.ports
     }
-    target_policies: dict[tuple[str, int], tuple[str, tuple[str, ...]]] = {}
+    # DNAT discards the destination address before the forward hook, but the
+    # incoming interface remains available. Distinct interfaces can therefore
+    # safely enforce distinct source policies for the same container port.
+    target_policies: dict[tuple[str, int, str], tuple[str, ...]] = {}
     for entry in external:
         ingress = ingress_by_publication[
             (entry.service, entry.protocol, entry.host_address, entry.port)
         ]
-        policy = (ingress.interface, tuple(sorted(ingress.sources)))
-        target = (entry.protocol, entry.target_port)
+        policy = tuple(sorted(ingress.sources))
+        target = (entry.protocol, entry.target_port, ingress.interface)
         previous = target_policies.setdefault(target, policy)
         if previous != policy:
             raise FirewallError("published_target_ingress_ambiguous")
