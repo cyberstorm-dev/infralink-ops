@@ -90,6 +90,11 @@ def _plan_writes(registry: Path, deployment: dict[str, Any], services_dir: Path)
         provider = declaration.get("provider")
         if not isinstance(provider, str):
             raise ControllerArtifactsError("generated_artifacts_invalid")
+        # The declared source is a Jinja template. ``template_renderer`` owns
+        # its materialization into this same services projection; copying the
+        # verified source bytes here would overwrite its rendered result.
+        if provider == "rendered-host-config":
+            continue
         if provider not in _GENERIC_PROVIDERS:
             raise ControllerArtifactsError("generated_artifact_provider_unsupported")
         identifier = declaration.get("id")
