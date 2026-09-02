@@ -85,6 +85,97 @@ def test_validate_selects_affected_declared_consumer(tmp_path: Path, monkeypatch
     ]
 
 
+def test_validate_selects_typed_artifact_consumer_outside_legacy_path_prefix(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from infralink_ops.controller_config_consumers import main
+
+    deployment = tmp_path / "deployment.yml"
+    deployment.write_text(
+        yaml.safe_dump(
+            {
+                "rendered_config_consumers": [
+                    {
+                        "id": "grafana",
+                        "path_prefix": "legacy/grafana",
+                        "service": "grafana",
+                        "validation_argv": ["grafana-server", "-v"],
+                        "lifecycle": "compose-recreate",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text("services: {grafana: {}}\n", encoding="utf-8")
+    config_root = tmp_path / "config"
+    config_root.mkdir()
+    log = tmp_path / "docker.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        '#!/usr/bin/env bash\nprintf \'%s\\n\' "$*" >> "$DOCKER_LOG"\n',
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake_bin}:{os.environ['PATH']}")
+    monkeypatch.setenv("DOCKER_LOG", str(log))
+
+    payload, status = main(
+        [
+            "validate",
+            "--deployment",
+            str(deployment),
+            "--compose",
+            str(compose),
+            "--config-root",
+            str(config_root),
+            "--changed-paths-json",
+            '["grafana/dashboards/fleet.json"]',
+            "--consumer-ids-json",
+            '["grafana"]',
+        ]
+    )
+
+    assert status == 0
+    assert payload["result"] == {"consumers": ["grafana"], "services": ["grafana"]}
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        f"compose -f {compose} run --rm --no-deps grafana grafana-server -v"
+    ]
+
+
+def test_validate_rejects_unknown_typed_artifact_consumer(tmp_path: Path) -> None:
+    from infralink_ops.controller_config_consumers import main
+
+    deployment = tmp_path / "deployment.yml"
+    deployment.write_text("rendered_config_consumers: []\n", encoding="utf-8")
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+    config_root = tmp_path / "config"
+    config_root.mkdir()
+
+    payload, status = main(
+        [
+            "validate",
+            "--deployment",
+            str(deployment),
+            "--compose",
+            str(compose),
+            "--config-root",
+            str(config_root),
+            "--changed-paths-json",
+            "[]",
+            "--consumer-ids-json",
+            '["missing-consumer"]',
+        ]
+    )
+
+    assert status == 78
+    assert payload["error"] == {"code": "config_consumers_failed"}
+
+
 def test_activate_recreates_changed_direct_file_bind(tmp_path: Path, monkeypatch) -> None:
     from infralink_ops.controller_config_consumers import main
 
