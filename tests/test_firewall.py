@@ -134,8 +134,46 @@ def test_render_firewall_policy_allows_same_container_port_on_distinct_interface
     ) in rendered
 
 
-def test_render_firewall_policy_rejects_different_sources_for_same_target_interface() -> None:
+def test_render_firewall_policy_rejects_cross_family_ingress_sources() -> None:
     from infralink_ops.firewall import FirewallError, render_firewall_policy
+
+    firewall = FirewallPolicy.model_validate(
+        {
+            "backend": "nftables",
+            "mode": "default-deny",
+            "management_ssh": {
+                "port": 22,
+                "interface": "tailscale0",
+                "sources": ["100.64.0.0/10"],
+            },
+            "ingress": [
+                {
+                    "service": "smtp",
+                    "protocol": "tcp",
+                    "ports": [2125],
+                    "interface": "eth0",
+                    "bind_address": "5.161.17.242",
+                    "sources": ["0.0.0.0/1", "2001:db8::/32"],
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(FirewallError, match="firewall_ingress_source_family_mismatch"):
+        render_firewall_policy(
+            firewall=firewall,
+            compose=(
+                b"services:\n"
+                b"  smtp:\n"
+                b"    image: example/smtp\n"
+                b"    ports:\n"
+                b"      - 5.161.17.242:2125:25/tcp\n"
+            ),
+        )
+
+
+def test_render_firewall_policy_allows_distinct_bound_socket_policies() -> None:
+    from infralink_ops.firewall import render_firewall_policy
 
     firewall = FirewallPolicy.model_validate(
         {
@@ -167,18 +205,24 @@ def test_render_firewall_policy_rejects_different_sources_for_same_target_interf
         }
     )
 
-    with pytest.raises(FirewallError, match="published_target_ingress_ambiguous"):
-        render_firewall_policy(
-            firewall=firewall,
-            compose=(
-                b"services:\n"
-                b"  smtp:\n"
-                b"    image: example/smtp\n"
-                b"    ports:\n"
-                b"      - 5.161.17.242:2125:25/tcp\n"
-                b"      - 5.161.26.199:2126:25/tcp\n"
-            ),
-        )
+    rendered = render_firewall_policy(
+        firewall=firewall,
+        compose=(
+            b"services:\n"
+            b"  smtp:\n"
+            b"    image: example/smtp\n"
+            b"    ports:\n"
+            b"      - 5.161.17.242:2125:25/tcp\n"
+            b"      - 5.161.26.199:2126:25/tcp\n"
+        ),
+    )
+
+    assert (
+        b'iifname "eth0" ip saddr 0.0.0.0/1 ct original ip daddr 5.161.17.242 tcp dport 25 accept'
+    ) in rendered
+    assert (
+        b'iifname "eth0" ip saddr 10.0.0.0/8 ct original ip daddr 5.161.26.199 tcp dport 25 accept'
+    ) in rendered
 
 
 def test_render_firewall_policy_constrains_ipv6_ingress_to_bind_address() -> None:
