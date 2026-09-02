@@ -25,7 +25,9 @@ def _commit(registry: Path) -> str:
     ).strip()
 
 
-def _registry(tmp_path: Path) -> tuple[Path, str]:
+def _registry(
+    tmp_path: Path, *, include_unsupported: bool = False, provider: str = "artifact-sync"
+) -> tuple[Path, str]:
     registry = tmp_path / "registry"
     source = registry / "operations" / "rendered" / "config.yml"
     source.parent.mkdir(parents=True)
@@ -35,7 +37,7 @@ def _registry(tmp_path: Path) -> tuple[Path, str]:
         "generated_artifacts": [
             {
                 "id": "declared-config",
-                "provider": "artifact-sync",
+                "provider": provider,
                 "source": {
                     "path": "operations/rendered/config.yml",
                     "sha256": hashlib.sha256(body).hexdigest(),
@@ -47,17 +49,20 @@ def _registry(tmp_path: Path) -> tuple[Path, str]:
                     "owner_gid": 0,
                 },
             },
-            {"id": "private-projection", "provider": "gatus-core-config"},
         ]
     }
+    if include_unsupported:
+        deployment["generated_artifacts"].append(
+            {"id": "private-projection", "provider": "unsupported-provider"}
+        )
     path = registry / "hosts" / HOST_ID / "operations" / "deployment.yml"
     path.parent.mkdir(parents=True)
     path.write_text(yaml.safe_dump(deployment), encoding="utf-8")
     return registry, _commit(registry)
 
 
-def test_apply_materializes_only_generic_declared_artifacts(tmp_path: Path) -> None:
-    registry, revision = _registry(tmp_path)
+def test_apply_rejects_undeclared_provider_before_writing(tmp_path: Path) -> None:
+    registry, revision = _registry(tmp_path, include_unsupported=True)
     payload, status = main(
         [
             "apply",
@@ -71,12 +76,33 @@ def test_apply_materializes_only_generic_declared_artifacts(tmp_path: Path) -> N
             str(tmp_path / "services"),
         ]
     )
+    assert status == 78
+    assert payload["ok"] is False
+    assert payload["error"] == {"code": "generated_artifact_materialization_failed"}
+    assert not (tmp_path / "services").exists()
+
+
+def test_apply_materializes_the_existing_gatus_static_binding(tmp_path: Path) -> None:
+    registry, revision = _registry(tmp_path, provider="gatus-core-config")
+    services = tmp_path / "services"
+
+    payload, status = main(
+        [
+            "apply",
+            "--registry",
+            str(registry),
+            "--registry-revision",
+            revision,
+            "--uuid",
+            HOST_ID,
+            "--services-dir",
+            str(services),
+        ]
+    )
+
     assert status == 0
-    assert payload["ok"] is True
     assert payload["result"] == {"changed_config_paths": ["example/config.yml"]}
-    assert (
-        tmp_path / "services" / "config" / "example" / "config.yml"
-    ).read_text() == "value: declared\n"
+    assert (services / "config" / "example" / "config.yml").read_text() == "value: declared\n"
 
 
 def test_plan_validates_live_generic_artifact_destinations_without_writing(tmp_path: Path) -> None:

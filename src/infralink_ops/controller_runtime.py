@@ -13,6 +13,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -36,6 +37,7 @@ from infralink_ops import (
     controller_render_secrets,
     controller_runtime_directories,
     template_renderer,
+    typed_artifact_materializer,
 )
 from infralink_ops.image_resolution import (
     ImageResolutionError,
@@ -374,26 +376,35 @@ def _secret_environment(context: ControllerContext, revision: str) -> dict[str, 
 
 
 def _config_consumers(
-    context: ControllerContext, revision: str, phase: str, paths: list[str]
+    context: ControllerContext,
+    revision: str,
+    phase: str,
+    paths: list[str],
+    *,
+    services_dir: Path | None = None,
+    consumer_ids: tuple[str, ...] = (),
 ) -> None:
+    selected_services = context.services_root if services_dir is None else services_dir
     payload, status = controller_config_consumers.main(
         [
             phase,
             "--deployment",
             str(_deployment(context)),
             "--compose",
-            str(context.services_root / "docker-compose.yml"),
+            str(selected_services / "docker-compose.yml"),
             "--config-root",
-            str(context.services_root / "config"),
+            str(selected_services / "config"),
             "--changed-paths-json",
             json.dumps(paths, separators=(",", ":")),
+            "--consumer-ids-json",
+            json.dumps(consumer_ids, separators=(",", ":")),
         ]
     )
     if status or payload.get("ok") is not True:
         raise ControllerRuntimeError("config_consumers_failed", stage="config_consumers")
 
 
-def _validate_compose(context: ControllerContext) -> None:
+def _validate_compose(compose: Path) -> None:
     """Reject an invalid rendered Compose document before firewall mutation."""
 
     completed = subprocess.run(
@@ -401,7 +412,7 @@ def _validate_compose(context: ControllerContext) -> None:
             "docker",
             "compose",
             "-f",
-            str(context.services_root / "docker-compose.yml"),
+            str(compose),
             "config",
             "--quiet",
         ],
@@ -415,8 +426,7 @@ def _validate_compose(context: ControllerContext) -> None:
         )
 
 
-def _apply_firewall(context: ControllerContext, revision: str) -> None:
-    compose = context.services_root / "docker-compose.yml"
+def _render_firewall(context: ControllerContext, revision: str, *, compose: Path) -> str | None:
     payload, status = controller_firewall.main(
         [
             "render",
@@ -441,10 +451,16 @@ def _apply_firewall(context: ControllerContext, revision: str) -> None:
         )
     result = payload.get("result")
     if not isinstance(result, dict) or result.get("status") == "disabled":
-        return
+        return None
     rules = result.get("rules")
     if not isinstance(rules, str):
         raise ControllerRuntimeError("firewall_render_failed", stage="firewall_render")
+    return rules
+
+
+def _apply_firewall_rules(rules: str | None) -> None:
+    if rules is None:
+        return
     present = subprocess.run(
         ["nft", "list", "table", "inet", "infralink_filter"],
         text=True,
@@ -469,6 +485,56 @@ def _apply_firewall(context: ControllerContext, revision: str) -> None:
         raise ControllerRuntimeError(
             "firewall_apply_failed", stage="firewall_apply", exit_code=completed.returncode
         )
+
+
+def _apply_firewall(context: ControllerContext, revision: str) -> None:
+    """Render and install the declared firewall for legacy direct callers."""
+
+    _apply_firewall_rules(
+        _render_firewall(context, revision, compose=context.services_root / "docker-compose.yml")
+    )
+
+
+def _v2_artifact_catalogs(registry: Path) -> tuple[Path, ...]:
+    """Return the selected checkout's complete V2 artifact catalog set."""
+
+    root = registry / "service-catalog" / "v2"
+    if not root.is_dir():
+        return ()
+    return tuple(sorted(path for path in root.rglob("*.yml") if path.is_file()))
+
+
+def _project_artifacts(
+    context: ControllerContext, revision: str, *, services_dir: Path
+) -> tuple[list[str], tuple[str, ...]]:
+    """Materialize every declared artifact family into one selected projection."""
+
+    generic_paths = controller_artifacts.apply(
+        registry=context.registry_root,
+        registry_revision=revision,
+        host_id=context.host_uuid,
+        services_dir=services_dir,
+    )
+    catalogs = _v2_artifact_catalogs(context.registry_root)
+    if not catalogs:
+        return generic_paths, ()
+    typed = typed_artifact_materializer.materialize_v2_artifact_bindings(
+        registry=context.registry_root,
+        expected_revision=revision,
+        host_id=context.host_uuid,
+        services_dir=services_dir,
+        source_paths=catalogs,
+    )
+    return sorted(set(generic_paths) | set(typed.changed_paths)), typed.affected_consumers
+
+
+@contextmanager
+def _staged_services(context: ControllerContext):
+    """Create an ephemeral candidate projection for one locked reconcile."""
+
+    context.runtime_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="projection-", dir=context.runtime_root) as directory:
+        yield Path(directory) / "services"
 
 
 def _compose_services(compose: Path, *, excluded: set[str]) -> list[str]:
@@ -581,33 +647,36 @@ def _inner_reconcile(
             context.registry_root, context.host_uuid, expected_revision=revision
         )
         secret_values = _secret_environment(context, revision)
-        rendered = template_renderer.render_declared_host(
-            registry=context.registry_root,
-            host_id=context.host_uuid,
-            services_dir=context.services_root,
-            expected_registry_revision=revision,
-            resolved_images=images,
-            environment_values={
+        render_kwargs = {
+            "registry": context.registry_root,
+            "host_id": context.host_uuid,
+            "expected_registry_revision": revision,
+            "resolved_images": images,
+            "environment_values": {
                 **context.environment,
                 **secret_values,
                 "SELF_DEPLOY_GIT_SHA": revision,
             },
-        )
-        _validate_compose(context)
-        artifact_paths = controller_artifacts.apply(
-            registry=context.registry_root,
-            registry_revision=revision,
-            host_id=context.host_uuid,
-            services_dir=context.services_root,
-        )
-        changed_paths = sorted(set(rendered.changed_config_paths) | set(artifact_paths))
-        _config_consumers(context, revision, "validate", changed_paths)
-        transition, transition_status = controller_protected_transitions.validate(
-            registry=context.registry_root,
-            registry_revision=revision,
-            host_id=context.host_uuid,
-            compose=context.services_root / "docker-compose.yml",
-        )
+        }
+
+        # All declarative projection checks run against this ephemeral candidate.
+        # It is derived from the selected Registry revision and discarded; it is
+        # not a persisted plan or another desired-state selector. This is a
+        # preflight boundary: invalid render, artifact, Compose, protected
+        # transition, or firewall declarations cannot change live services.
+        with _staged_services(context) as staged_services:
+            template_renderer.render_declared_host(**render_kwargs, services_dir=staged_services)
+            _project_artifacts(context, revision, services_dir=staged_services)
+            staged_compose = staged_services / "docker-compose.yml"
+            _validate_compose(staged_compose)
+            transition, transition_status = controller_protected_transitions.validate(
+                registry=context.registry_root,
+                registry_revision=revision,
+                host_id=context.host_uuid,
+                compose=staged_compose,
+            )
+            rules = _render_firewall(context, revision, compose=staged_compose)
+
         if transition_status or not isinstance(transition, dict):
             raise ControllerRuntimeError(
                 "protected_transition_failed", stage="protected_transition"
@@ -620,11 +689,25 @@ def _inner_reconcile(
             raise ControllerRuntimeError(
                 "protected_transition_failed", stage="protected_transition"
             )
-        _apply_firewall(context, revision)
+
+        rendered = template_renderer.render_declared_host(
+            **render_kwargs, services_dir=context.services_root
+        )
+        artifact_paths, typed_consumers = _project_artifacts(
+            context, revision, services_dir=context.services_root
+        )
+        changed_paths = sorted(set(rendered.changed_config_paths) | set(artifact_paths))
+        _validate_compose(context.services_root / "docker-compose.yml")
+        _config_consumers(
+            context, revision, "validate", changed_paths, consumer_ids=typed_consumers
+        )
+        _apply_firewall_rules(rules)
         service_count = _apply_compose(
             context, excluded={item["service"] for item in representation}
         )
-        _config_consumers(context, revision, "activate", changed_paths)
+        _config_consumers(
+            context, revision, "activate", changed_paths, consumer_ids=typed_consumers
+        )
     except ControllerRuntimeError:
         raise
     except (
@@ -632,6 +715,7 @@ def _inner_reconcile(
         ImageResolutionError,
         template_renderer.TemplateRenderError,
         controller_artifacts.ControllerArtifactsError,
+        typed_artifact_materializer.TypedArtifactMaterializationError,
     ) as error:
         raise ControllerRuntimeError("controller_reconcile_failed", stage="projection") from error
 

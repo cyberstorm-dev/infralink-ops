@@ -30,7 +30,10 @@ from infralink_ops.registry_checkout import RegistryCheckoutError, verify_regist
 from infralink_ops.stable_regular_file import StableRegularFileError, read_stable_regular_file
 
 SCHEMA_VERSION = "infralink.ops.controller-artifacts/v1"
-_GENERIC_PROVIDERS = {"artifact-sync", "host-config"}
+# ``gatus-core-config`` is an established static-file binding whose declared
+# source/target contract is identical to ``artifact-sync``. It remains
+# explicit here until Registry migrates it to the typed V2 artifact slots.
+_GENERIC_PROVIDERS = {"artifact-sync", "host-config", "gatus-core-config"}
 _MAX_DEPLOYMENT_BYTES = 1024 * 1024
 
 
@@ -88,7 +91,7 @@ def _plan_writes(registry: Path, deployment: dict[str, Any], services_dir: Path)
         if not isinstance(provider, str):
             raise ControllerArtifactsError("generated_artifacts_invalid")
         if provider not in _GENERIC_PROVIDERS:
-            continue
+            raise ControllerArtifactsError("generated_artifact_provider_unsupported")
         identifier = declaration.get("id")
         if not isinstance(identifier, str) or not identifier:
             raise ControllerArtifactsError("generated_artifacts_invalid")

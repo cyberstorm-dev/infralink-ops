@@ -5,6 +5,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from infralink_ops import controller_runtime
 
 HOST_ID = "9157ddeb-cb6d-4d55-8252-9db358f5d932"
@@ -370,10 +372,17 @@ def test_invalid_rendered_compose_stops_before_firewall_or_service_mutation(
     def verify(*_args: object, **_kwargs: object) -> None:
         return None
 
-    def invalid_compose(_context: object) -> None:
+    def invalid_compose(_compose: Path) -> None:
         raise controller_runtime.ControllerRuntimeError(
             "compose_validation_failed", stage="compose_validation"
         )
+
+    def render(**kwargs: object) -> object:
+        services_dir = kwargs["services_dir"]
+        assert isinstance(services_dir, Path)
+        services_dir.mkdir(parents=True)
+        (services_dir / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+        return object()
 
     monkeypatch.setattr(controller_runtime, "verify_registry_revision", verify)
     monkeypatch.setattr(
@@ -387,7 +396,12 @@ def test_invalid_rendered_compose_stops_before_firewall_or_service_mutation(
     monkeypatch.setattr(
         controller_runtime.template_renderer,
         "render_declared_host",
-        lambda **_kwargs: object(),
+        render,
+    )
+    monkeypatch.setattr(
+        controller_runtime,
+        "_project_artifacts",
+        lambda *_args, **_kwargs: ([], ()),
     )
     monkeypatch.setattr(
         controller_runtime,
@@ -395,9 +409,7 @@ def test_invalid_rendered_compose_stops_before_firewall_or_service_mutation(
         invalid_compose,
     )
     monkeypatch.setattr(
-        controller_runtime,
-        "_apply_firewall",
-        lambda *_args: mutations.append("firewall"),
+        controller_runtime, "_apply_firewall_rules", lambda *_args: mutations.append("firewall")
     )
     monkeypatch.setattr(
         controller_runtime,
@@ -412,6 +424,66 @@ def test_invalid_rendered_compose_stops_before_firewall_or_service_mutation(
     else:
         raise AssertionError("expected compose validation failure")
     assert mutations == []
+    assert not context.services_root.exists()
+
+
+def test_invalid_artifact_projection_preserves_live_services(tmp_path: Path, monkeypatch) -> None:
+    context = controller_runtime.ControllerContext(
+        host_uuid=HOST_ID,
+        controller_image="ghcr.io/example/infralink-controller:main",
+        registry_remote="ssh://git@example.invalid/infra-registry.git",
+        registry_ref="main",
+        registry_root=tmp_path / "registry",
+        runtime_root=tmp_path / "runtime",
+        services_root=tmp_path / "services",
+        registry_key=tmp_path / "registry-read",
+        registry_known_hosts=tmp_path / "registry-known-hosts",
+        host_root=tmp_path,
+        textfile_directory=tmp_path,
+        handoff_digest=DIGEST,
+        environment=_environment(handoff=True),
+    )
+    context.services_root.mkdir()
+    marker = context.services_root / "live-config"
+    marker.write_text("unchanged\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        controller_runtime, "verify_registry_revision", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        controller_runtime,
+        "resolve_controller_reference",
+        lambda *_args, **_kwargs: "ghcr.io/example/infralink-controller:main",
+    )
+    monkeypatch.setattr(controller_runtime, "_controller_digest", lambda *_args, **_kwargs: DIGEST)
+    monkeypatch.setattr(controller_runtime, "resolve_host_images", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(controller_runtime, "_secret_environment", lambda *_args, **_kwargs: {})
+
+    def render(**kwargs: object) -> object:
+        services_dir = kwargs["services_dir"]
+        assert isinstance(services_dir, Path)
+        (services_dir / "docker-compose.yml").parent.mkdir(parents=True, exist_ok=True)
+        (services_dir / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+        return object()
+
+    monkeypatch.setattr(controller_runtime.template_renderer, "render_declared_host", render)
+    monkeypatch.setattr(
+        controller_runtime,
+        "_project_artifacts",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            controller_runtime.controller_artifacts.ControllerArtifactsError(
+                "generated_artifact_provider_unsupported"
+            )
+        ),
+    )
+
+    with pytest.raises(
+        controller_runtime.ControllerRuntimeError, match="controller_reconcile_failed"
+    ):
+        controller_runtime._inner_reconcile(context, REVISION, DIGEST)
+
+    assert marker.read_text(encoding="utf-8") == "unchanged\n"
+    assert not (context.services_root / "docker-compose.yml").exists()
 
 
 def test_all_representation_equivalent_services_still_remove_declared_orphans(

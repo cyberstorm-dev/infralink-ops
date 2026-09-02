@@ -76,6 +76,18 @@ def _changed_paths(value: str) -> list[str]:
     return paths
 
 
+def _consumer_ids(value: str) -> list[str]:
+    try:
+        identifiers = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise ConfigConsumerError("consumer_ids_invalid") from error
+    if not isinstance(identifiers, list) or any(
+        not isinstance(identifier, str) or not identifier for identifier in identifiers
+    ):
+        raise ConfigConsumerError("consumer_ids_invalid")
+    return list(dict.fromkeys(identifiers))
+
+
 def _config_root(path: Path) -> Path:
     if not path.is_absolute() or not path.is_dir():
         raise ConfigConsumerError("config_root_invalid")
@@ -196,6 +208,7 @@ def _payload(
     compose: Path | None,
     config_root: Path | None,
     changed_paths: list[str] | None,
+    consumer_ids: list[str] | None = None,
     result: dict[str, Any] | None = None,
     error: str | None = None,
 ) -> dict[str, Any]:
@@ -208,6 +221,8 @@ def _payload(
         arguments["config_root"] = str(config_root)
     if changed_paths is not None:
         arguments["changed_paths"] = changed_paths
+    if consumer_ids is not None:
+        arguments["consumer_ids"] = consumer_ids
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "ok": error is None,
@@ -232,6 +247,7 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
         command.add_argument("--compose", required=True, type=Path)
         command.add_argument("--config-root", required=True, type=Path)
         command.add_argument("--changed-paths-json", required=True)
+        command.add_argument("--consumer-ids-json", default="[]")
     try:
         args = parser.parse_args(argv)
     except ConfigConsumerError as error:
@@ -241,12 +257,15 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
             compose=None,
             config_root=None,
             changed_paths=None,
+            consumer_ids=None,
             error=str(error),
         ), 64
 
     changed_paths: list[str] | None = None
+    consumer_ids: list[str] | None = None
     try:
         changed_paths = _changed_paths(args.changed_paths_json)
+        consumer_ids = _consumer_ids(args.consumer_ids_json)
         config_root = _config_root(args.config_root)
         deployment = _mapping(yaml.safe_load(args.deployment.read_text(encoding="utf-8")) or {})
         raw_consumers = deployment.get("rendered_config_consumers", [])
@@ -255,10 +274,14 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
         consumers = [_consumer(value) for value in raw_consumers]
         if len({consumer["id"] for consumer in consumers}) != len(consumers):
             raise ConfigConsumerError("config_consumers_invalid")
+        declared_consumer_ids = {consumer["id"] for consumer in consumers}
+        if any(identifier not in declared_consumer_ids for identifier in consumer_ids):
+            raise ConfigConsumerError("consumer_ids_unknown")
         affected = [
             consumer
             for consumer in consumers
-            if any(path.startswith(consumer["path_prefix"]) for path in changed_paths)
+            if consumer["id"] in consumer_ids
+            or any(path.startswith(consumer["path_prefix"]) for path in changed_paths)
         ]
         if args.command == "validate":
             for consumer in affected:
@@ -303,6 +326,7 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
             compose=args.compose,
             config_root=args.config_root,
             changed_paths=changed_paths,
+            consumer_ids=consumer_ids or None,
             error="config_consumers_failed",
         ), 78
 
@@ -312,6 +336,7 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
         compose=args.compose,
         config_root=args.config_root,
         changed_paths=changed_paths,
+        consumer_ids=consumer_ids or None,
         result={
             "consumers": [consumer["id"] for consumer in affected],
             "services": selected_services,
