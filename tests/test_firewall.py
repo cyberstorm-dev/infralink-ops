@@ -126,8 +126,7 @@ def test_render_firewall_policy_allows_same_container_port_on_distinct_interface
     )
 
     assert (
-        b'iifname "eth0" ip saddr 0.0.0.0/1 ct original ip daddr '
-        b"5.161.17.242 tcp dport 25 accept"
+        b'iifname "eth0" ip saddr 0.0.0.0/1 ct original ip daddr 5.161.17.242 tcp dport 25 accept'
     ) in rendered
     assert (
         b'iifname "tailscale0" ip saddr 100.64.0.0/10 ct original ip daddr '
