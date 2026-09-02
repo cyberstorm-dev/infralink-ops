@@ -105,6 +105,29 @@ def test_apply_materializes_the_existing_gatus_static_binding(tmp_path: Path) ->
     assert (services / "config" / "example" / "config.yml").read_text() == "value: declared\n"
 
 
+def test_plan_leaves_renderer_owned_host_config_to_template_projection(tmp_path: Path) -> None:
+    registry, revision = _registry(tmp_path, provider="rendered-host-config")
+    services = tmp_path / "services"
+
+    payload, status = main(
+        [
+            "plan",
+            "--registry",
+            str(registry),
+            "--registry-revision",
+            revision,
+            "--uuid",
+            HOST_ID,
+            "--services-dir",
+            str(services),
+        ]
+    )
+
+    assert status == 0
+    assert payload["result"] == {"config_paths": []}
+    assert not services.exists()
+
+
 def test_plan_validates_live_generic_artifact_destinations_without_writing(tmp_path: Path) -> None:
     registry, revision = _registry(tmp_path)
     services = tmp_path / "services"
