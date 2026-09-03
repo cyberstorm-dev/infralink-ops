@@ -56,9 +56,6 @@ RUNTIME_ROOT = Path("/var/lib/infralink")
 SERVICES_ROOT = Path("/opt/services")
 REGISTRY_KEY = Path("/etc/infralink/registry-read")
 REGISTRY_KNOWN_HOSTS = Path("/etc/infralink/registry-known_hosts")
-# A handed-off controller runs in a nested container.  This fixed PID-1 view
-# reaches the host mount namespace without introducing another host path input.
-HOST_NAMESPACE_ROOT = Path("/proc/1/root")
 
 
 class ControllerRuntimeError(ValueError):
@@ -760,15 +757,63 @@ def _transition_handed_off_controller(context: ControllerContext, revision: str)
         raise ControllerRuntimeError("controller_handoff_invalid")
     if _controller_digest(declared_controller, pull=False) != context.handoff_digest:
         raise ControllerRuntimeError("controller_handoff_invalid")
+    command = [
+        "docker",
+        "run",
+        "--rm",
+        "--network=none",
+        "--pid=host",
+        "--privileged",
+        "--entrypoint",
+        "python",
+    ]
+    for source, destination in (
+        (Path("/etc/infralink"), Path("/infralink-host-interface/etc/infralink")),
+        (Path("/usr/local/bin"), Path("/infralink-host-interface/usr/local/bin")),
+        (Path("/usr/local/sbin"), Path("/infralink-host-interface/usr/local/sbin")),
+        (Path("/usr/libexec"), Path("/infralink-host-interface/usr/libexec")),
+        (Path("/etc/systemd/system"), Path("/infralink-host-interface/etc/systemd/system")),
+    ):
+        command.extend(["--mount", f"type=bind,src={source},dst={destination}"])
+    # Atomic replacement needs the host.env parent directory.  Mask every
+    # sibling controller credential; this helper has no Registry work to do.
+    for destination in (
+        Path("/infralink-host-interface/etc/infralink/registry-read"),
+        Path("/infralink-host-interface/etc/infralink/registry-known_hosts"),
+    ):
+        command.extend(["--mount", f"type=bind,src=/dev/null,dst={destination},readonly"])
     try:
-        controller_host_interface.refresh(HOST_NAMESPACE_ROOT)
-        controller_host_interface.transition_controller_seed(
-            HOST_NAMESPACE_ROOT, context.handoff_digest
+        completed = subprocess.run(
+            [
+                *command,
+                context.handoff_digest,
+                "-m",
+                "infralink_ops.controller_host_transition",
+                "transition",
+                "--host-root",
+                "/infralink-host-interface",
+                "--controller-reference",
+                context.handoff_digest,
+            ],
+            check=False,
+            text=True,
+            capture_output=True,
         )
-    except controller_host_interface.HostInterfaceError as error:
+    except OSError as error:
         raise ControllerRuntimeError(
             "controller_seed_transition_failed", stage="host_interface"
         ) from error
+    try:
+        payload = yaml.safe_load(completed.stdout)
+    except yaml.YAMLError:
+        payload = None
+    if (
+        completed.returncode
+        or not isinstance(payload, dict)
+        or payload.get("schema_version") != "infralink.ops.controller-host-transition/v1"
+        or payload.get("ok") is not True
+    ):
+        raise ControllerRuntimeError("controller_seed_transition_failed", stage="host_interface")
 
 
 def reconcile(context: ControllerContext) -> dict[str, Any]:

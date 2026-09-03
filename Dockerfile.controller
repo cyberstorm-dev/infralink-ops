@@ -38,6 +38,14 @@ RUN curl -fsSL "https://github.com/bitwarden/sdk/releases/download/bws-v${BWS_VE
     && install -m 0755 /tmp/bws /usr/local/bin/bws \
     && rm -f /tmp/bws.zip /tmp/bws
 
+# Fixed mount targets for the private legacy-handoff transition helper.
+RUN install -d \
+        /infralink-host-interface/etc/infralink \
+        /infralink-host-interface/etc/systemd/system \
+        /infralink-host-interface/usr/libexec \
+        /infralink-host-interface/usr/local/bin \
+        /infralink-host-interface/usr/local/sbin
+
 WORKDIR /app
 
 COPY pyproject.toml README.md ./

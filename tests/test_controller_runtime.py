@@ -109,9 +109,6 @@ def test_handoff_reconcile_transitions_the_host_seed_before_applying_services(
     runtime = tmp_path / "runtime"
     runtime.mkdir()
     monkeypatch.setattr(controller_runtime, "RUNTIME_ROOT", runtime)
-    host_namespace_root = tmp_path / "host-namespace"
-    host_namespace_root.mkdir()
-    monkeypatch.setattr(controller_runtime, "HOST_NAMESPACE_ROOT", host_namespace_root)
     monkeypatch.setattr(controller_runtime, "REGISTRY_ROOT", tmp_path / "registry")
     monkeypatch.setattr(
         controller_runtime,
@@ -119,18 +116,18 @@ def test_handoff_reconcile_transitions_the_host_seed_before_applying_services(
         lambda *_args, **_kwargs: "ghcr.io/example/infralink-controller:main",
     )
     monkeypatch.setattr(controller_runtime, "_controller_digest", lambda *_args, **_kwargs: DIGEST)
-    transitions: list[tuple[str, object]] = []
+    transitions: list[list[str]] = []
     monkeypatch.setattr(
-        controller_runtime.controller_host_interface,
-        "transition_controller_seed",
-        lambda root, reference: (
-            transitions.append(("seed", (root, reference))) or {"changed": True}
+        controller_runtime.subprocess,
+        "run",
+        lambda command, **_kwargs: (
+            transitions.append(command)
+            or subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="schema_version: infralink.ops.controller-host-transition/v1\nok: true\n",
+            )
         ),
-    )
-    monkeypatch.setattr(
-        controller_runtime.controller_host_interface,
-        "refresh",
-        lambda root: transitions.append(("interface", root)) or {"changed": True},
     )
     applied: list[bool] = []
     monkeypatch.setattr(
@@ -156,10 +153,34 @@ def test_handoff_reconcile_transitions_the_host_seed_before_applying_services(
 
     assert status == 0
     assert payload["ok"] is True
-    assert transitions == [
-        ("interface", host_namespace_root),
-        ("seed", (host_namespace_root, DIGEST)),
+    assert len(transitions) == 1
+    command = transitions[0]
+    assert "--privileged" in command
+    assert "--network=none" in command
+    assert command[command.index("--entrypoint") + 1] == "python"
+    assert "BWS_ACCESS_TOKEN" not in command
+    assert DIGEST in command
+    assert "infralink_ops.controller_host_transition" in command
+    image_index = command.index(DIGEST)
+    assert command[image_index + 1 :] == [
+        "-m",
+        "infralink_ops.controller_host_transition",
+        "transition",
+        "--host-root",
+        "/infralink-host-interface",
+        "--controller-reference",
+        DIGEST,
     ]
+    assert "type=bind,src=/etc/infralink,dst=/infralink-host-interface/etc/infralink" in command
+    assert "type=bind,src=/usr/libexec,dst=/infralink-host-interface/usr/libexec" in command
+    assert (
+        "type=bind,src=/dev/null,dst=/infralink-host-interface/etc/infralink/registry-read,readonly"
+        in command
+    )
+    assert (
+        "type=bind,src=/dev/null,dst=/infralink-host-interface/etc/infralink/registry-known_hosts,readonly"
+        in command
+    )
     assert applied == [True]
 
 
@@ -176,20 +197,13 @@ def test_handoff_seed_transition_failure_stops_before_service_apply(
         lambda *_args, **_kwargs: "ghcr.io/example/infralink-controller:main",
     )
     monkeypatch.setattr(controller_runtime, "_controller_digest", lambda *_args, **_kwargs: DIGEST)
-    persisted_seed: list[str] = []
+    helper_calls: list[bool] = []
     monkeypatch.setattr(
-        controller_runtime.controller_host_interface,
-        "refresh",
-        lambda *_args: (_ for _ in ()).throw(
-            controller_runtime.controller_host_interface.HostInterfaceError(
-                "host_interface_systemd_reload_failed"
-            )
+        controller_runtime.subprocess,
+        "run",
+        lambda *_args, **_kwargs: (
+            helper_calls.append(True) or subprocess.CompletedProcess([], 78, stdout="ok: false\n")
         ),
-    )
-    monkeypatch.setattr(
-        controller_runtime.controller_host_interface,
-        "transition_controller_seed",
-        lambda *_args: persisted_seed.append("changed") or {"changed": True},
     )
     applied: list[bool] = []
     monkeypatch.setattr(controller_runtime, "_inner_reconcile", lambda *_args: applied.append(True))
@@ -204,7 +218,7 @@ def test_handoff_seed_transition_failure_stops_before_service_apply(
     assert payload["error"] == {"code": "controller_seed_transition_failed"}
     assert applied == []
     assert failures == ["host_interface"]
-    assert persisted_seed == []
+    assert helper_calls == [True]
 
 
 def test_invalid_handoff_fails_before_any_apply_stage(tmp_path: Path, monkeypatch) -> None:
