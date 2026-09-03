@@ -2,8 +2,8 @@
 
 ## BLUF
 
-Operators normally use `infralink` for bounded inspection and `infralink-host`
-for the installed host interface. Controller primitives are private runtime
+Operators use `infralink` for bounded inspection and approved host operations.
+The installed runtime shim and controller primitives are private runtime
 modules: they receive explicit inputs from the configured runtime and should
 not be used as an alternate desired-state workflow. The Registry
 repository remains authoritative for topology, image selection, and promotion.
@@ -13,9 +13,9 @@ repository remains authoritative for topology, image selection, and promotion.
 | Command | Lifecycle phase | Mutability | Output | Owner |
 | --- | --- | --- | --- | --- |
 | `infralink` | Inspect declared topology, observation, and readiness evidence | Read-only unless an explicit public CLI write/apply gate is supplied | Structured CLI envelope | Public `infralink` package |
-| `infralink-host doctor` | Diagnose a managed host | Read-only | Controller evidence | Installed host interface |
-| `infralink-host reconcile` | Timer-driven host reconciliation | Changes controller-owned runtime state | Reconcile result and metrics | Installed host interface |
-| `infralink-host bootstrap --apply` | Initial host interface provisioning | Writes host interface and enables the reconcile timer | Bootstrap envelope | Environment host-provisioning procedure |
+| `infralink controller doctor` | Diagnose local controller evidence | Read-only | Controller evidence | Public Infralink command |
+| `infralink host status <host>` | Inspect a target host's latest reconciliation | Read-only | Target-scoped evidence | Public Infralink command |
+| `systemctl start infralink-host-reconcile.service` | Retry an already-approved reconciliation | Changes controller-owned runtime state | Reconcile result and metrics | Systemd-owned private runtime |
 
 `infralink` is run through the installed host wrapper with the configured
 Registry checkout mounted read-only. It is useful for bounded queries and
@@ -39,7 +39,7 @@ not a new operator workflow.
 | Controller-owned secret rendering | Resolve declared BWS render bindings | Yes, rendered target only | Registry-declared binding and runtime BWS access |
 | Controller-owned firewall stage | Render or verify declared firewall policy | Render is local; apply behavior is controller-owned | Registry firewall declaration |
 | `infralink controller doctor` | Collect host consistency evidence | No | Controller runtime evidence paths |
-| Controller-owned bootstrap stage | Materialize host launcher and timer assets | Yes, explicit apply only | Approved bootstrap request |
+| Controller-owned bootstrap stage | Materialize host runtime and timer assets | Yes, explicit apply only | Approved bootstrap request |
 
 Supporting commands such as image resolution, image retention, runtime
 directories, artifact bindings, transport trust, protected transitions,

@@ -13,7 +13,7 @@ Run these commands on the affected host. They inspect the launcher, timer, last
 reconcile result, and recent controller service output:
 
 ```sh
-infralink-host doctor
+infralink controller doctor
 systemctl status infralink-host-reconcile.timer
 systemctl status infralink-host-reconcile.service
 sudo sed -n '1,220p' /var/lib/infralink/reconcile-result.yml
@@ -46,7 +46,7 @@ controller failure, use the existing one-shot unit:
 sudo systemctl start infralink-host-reconcile.service
 ```
 
-Collect `infralink-host doctor` again after the unit exits. Do not run ad hoc
+Collect `infralink controller doctor` again after the unit exits. Do not run ad hoc
 Docker commands, check out a Registry revision inside the host working tree, or edit `/opt/services` directly. Those actions break the reconciliation evidence
 chain and can conceal the source of drift.
 

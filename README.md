@@ -52,7 +52,7 @@ not own the registry data model or the environment-specific acceptance result.
 | Controller-owned secret rendering | Resolve registry-declared render-secret bindings through BWS. |
 | Controller-owned firewall stage | Render or verify declared nftables policy. |
 | `infralink controller doctor` | Read-only host-runtime check for registry, reconcile, Compose, firewall, and metrics evidence. |
-| `infralink-host doctor\|reconcile\|bootstrap --apply` | Host launcher installed from [`src/infralink_ops/assets/infralink-host`](src/infralink_ops/assets/infralink-host). |
+| `/usr/libexec/infralink/runtime` | Private systemd-only Docker/mount shim. It is not an operator command. |
 
 Each command is intentionally narrow. Commands receive explicit inputs and
 return bounded machine-readable envelopes where possible.
@@ -125,7 +125,7 @@ Check in this order:
 
 1. Confirm the environment selected the intended registry revision.
 2. Confirm `/var/lib/infralink/registry` has the expected checkout.
-3. Run `infralink-host doctor` for read-only host evidence.
+3. Run `infralink controller doctor` for read-only host evidence.
 4. Inspect `/var/lib/infralink/reconcile-result.yml` as the last reconcile
    result, not as desired state.
 5. Check whether `infralink-host-reconcile.timer` ran after the registry change.

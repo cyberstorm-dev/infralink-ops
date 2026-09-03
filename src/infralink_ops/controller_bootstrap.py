@@ -116,7 +116,7 @@ def _plan(host_root: Path, configuration: BootstrapConfiguration) -> dict[str, A
             "/etc/infralink/registry-known_hosts",
             REGISTRY_ROOT,
             "/usr/local/bin/infralink",
-            "/usr/local/sbin/infralink-host",
+            "/usr/libexec/infralink/runtime",
             "/etc/systemd/system/infralink-host-reconcile.service",
             "/etc/systemd/system/infralink-host-reconcile.timer",
         ],

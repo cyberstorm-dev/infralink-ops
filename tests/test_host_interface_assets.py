@@ -5,11 +5,11 @@ def test_host_interface_assets_are_packaged_with_canonical_runtime_contract() ->
     from infralink_ops.host_interface_assets import asset_path
 
     operator_cli = asset_path("infralink")
-    launcher = asset_path("infralink-host")
+    runtime = asset_path("infralink-runtime")
     service = asset_path("infralink-host-reconcile.service")
     timer = asset_path("infralink-host-reconcile.timer")
 
-    assert all(path.is_file() for path in (operator_cli, launcher, service, timer))
+    assert all(path.is_file() for path in (operator_cli, runtime, service, timer))
     operator_cli_source = operator_cli.read_text(encoding="utf-8")
     assert "--network=host" in operator_cli_source
     assert "INFRALINK_CONTROL_ROOT=/app" in operator_cli_source
@@ -34,28 +34,24 @@ def test_host_interface_assets_are_packaged_with_canonical_runtime_contract() ->
     assert "-e INFRALINK_GATUS_URL" in operator_cli_source
     assert "-e INFRALINK_GATUS_TOKEN" in operator_cli_source
     assert "-e INFRALINK_CONTROLLER_IMAGE" in operator_cli_source
-    assert "/var/lib/infralink/registry" in launcher.read_text(encoding="utf-8")
-    assert "--pull always" in launcher.read_text(encoding="utf-8")
-    launcher_source = launcher.read_text(encoding="utf-8")
-    doctor_runner = launcher_source.split("run_reconcile()", maxsplit=1)[0]
-    assert "--privileged" not in doctor_runner
-    assert "--pid=host" not in doctor_runner
-    assert "--privileged" in launcher_source.split("run_reconcile()", maxsplit=1)[1]
-    assert "--pid=host" in launcher_source.split("run_reconcile()", maxsplit=1)[1]
-    assert "doctor)\n        run_normal" in launcher_source
-    assert "reconcile)\n        run_reconcile" in launcher_source
-    reconcile_runner = launcher_source.split("run_reconcile()", maxsplit=1)[1]
-    assert "-e INFRALINK_HOST_ROOT=/infralink-host-interface" in reconcile_runner
-    assert "src=/usr/local/bin,dst=/infralink-host-interface/usr/local/bin" in launcher_source
-    assert "src=/usr/local/sbin,dst=/infralink-host-interface/usr/local/sbin" in launcher_source
+    runtime_source = runtime.read_text(encoding="utf-8")
+    assert "/var/lib/infralink/registry" in runtime_source
+    assert "--pull always" in runtime_source
+    assert "--privileged" in runtime_source
+    assert "--pid=host" in runtime_source
+    assert "reconcile" in runtime_source
+    assert "Usage:" not in runtime_source
+    assert "-e INFRALINK_HOST_ROOT=/infralink-host-interface" in runtime_source
+    assert "src=/usr/local/bin,dst=/infralink-host-interface/usr/local/bin" in runtime_source
+    assert "src=/usr/local/sbin,dst=/infralink-host-interface/usr/local/sbin" in runtime_source
     assert (
-        "src=/etc/systemd/system,dst=/infralink-host-interface/etc/systemd/system"
-        in launcher_source
+        "src=/usr/libexec/infralink,dst=/infralink-host-interface/usr/libexec/infralink"
+        in runtime_source
     )
-    assert "src=/usr/local/bin/infralink,dst=/usr/local/bin/infralink" not in launcher_source
-    assert "src=/usr/local/bin,dst=/usr/local/bin" not in launcher_source
-    assert "src=/usr/local/sbin,dst=/usr/local/sbin" not in doctor_runner
-    assert "src=/etc/systemd/system,dst=/etc/systemd/system" not in doctor_runner
+    assert (
+        "src=/etc/systemd/system,dst=/infralink-host-interface/etc/systemd/system" in runtime_source
+    )
+    assert "Usage: infralink-host" not in runtime_source
     assert service.read_text(encoding="utf-8") == (
         "[Unit]\n"
         "Description=Infralink controller reconcile\n"
@@ -63,6 +59,6 @@ def test_host_interface_assets_are_packaged_with_canonical_runtime_contract() ->
         "After=network-online.target docker.service\n\n"
         "[Service]\n"
         "Type=oneshot\n"
-        "ExecStart=/usr/local/sbin/infralink-host reconcile\n"
+        "ExecStart=/usr/libexec/infralink/runtime\n"
     )
     assert "OnUnitActiveSec=5min" in timer.read_text(encoding="utf-8")

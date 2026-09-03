@@ -44,7 +44,7 @@ class HostInterfaceAsset:
 
 ASSETS = (
     HostInterfaceAsset("infralink", "/usr/local/bin/infralink", 0o755),
-    HostInterfaceAsset("infralink-host", "/usr/local/sbin/infralink-host", 0o755),
+    HostInterfaceAsset("infralink-runtime", "/usr/libexec/infralink/runtime", 0o755),
     HostInterfaceAsset(
         "infralink-host-reconcile.service",
         "/etc/systemd/system/infralink-host-reconcile.service",
@@ -59,6 +59,7 @@ ASSETS = (
 SYSTEMD_UNIT_ASSET_NAMES = frozenset(
     {"infralink-host-reconcile.service", "infralink-host-reconcile.timer"}
 )
+RETIRED_DESTINATIONS = ("/usr/local/sbin/infralink-host",)
 
 
 def _payload(
@@ -118,6 +119,16 @@ def _snapshot(destination: Path) -> tuple[bytes, int] | None:
     return destination.read_bytes(), stat.S_IMODE(metadata.st_mode)
 
 
+def _retired_destinations(host_root: Path) -> tuple[Path, ...]:
+    """Validate former public paths before the replacement unit takes effect."""
+
+    destinations = tuple(host_root / path.removeprefix("/") for path in RETIRED_DESTINATIONS)
+    for destination in destinations:
+        _ensure_safe_parent(destination, host_root=host_root, create=False)
+        _snapshot(destination)
+    return destinations
+
+
 def _write_atomically(destination: Path, *, contents: bytes, mode: int) -> None:
     descriptor, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
     try:
@@ -151,6 +162,7 @@ def refresh(host_root: Path) -> dict[str, object]:
 
     sources: list[tuple[HostInterfaceAsset, Path, bytes]] = []
     unit_snapshots: dict[Path, tuple[bytes, int] | None] = {}
+    retired_destinations = _retired_destinations(host_root)
     for asset in ASSETS:
         destination = _destination(host_root, asset)
         _ensure_safe_parent(destination, host_root=host_root, create=False)
@@ -196,9 +208,18 @@ def refresh(host_root: Path) -> dict[str, object]:
                 _restore_unit(destination, unit_snapshots[destination])
             raise HostInterfaceError("host_interface_systemd_reload_failed") from error
         systemd_reloaded = True
+    retired_assets: list[str] = []
+    for destination in retired_destinations:
+        if destination.exists() or destination.is_symlink():
+            try:
+                destination.unlink()
+            except OSError as error:
+                raise HostInterfaceError("host_interface_retire_failed") from error
+            retired_assets.append("/" + str(destination.relative_to(host_root)))
     return {
-        "changed": bool(changed_assets),
+        "changed": bool(changed_assets or retired_assets),
         "systemd_reloaded": systemd_reloaded,
+        "retired_assets": retired_assets,
         "assets": [asset.document() for asset in ASSETS],
     }
 
