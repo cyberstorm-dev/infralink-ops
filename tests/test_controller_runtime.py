@@ -468,6 +468,9 @@ def test_handoff_mounts_host_var_lib_for_runtime_and_textfile_evidence(
 
     assert "type=bind,src=/var/lib,dst=/var/lib" in command
     assert "type=bind,src=/var/lib/infralink,dst=/var/lib/infralink" not in command
+    assert (
+        "type=bind,src=/root/.docker/config.json,dst=/root/.docker/config.json,readonly" in command
+    )
 
 
 def test_invalid_rendered_compose_stops_before_firewall_or_service_mutation(

@@ -338,6 +338,7 @@ def _handoff(
         (REGISTRY_KEY, REGISTRY_KEY, True),
         (REGISTRY_KNOWN_HOSTS, REGISTRY_KNOWN_HOSTS, True),
         (Path("/var/run/docker.sock"), Path("/var/run/docker.sock"), False),
+        (Path("/root/.docker/config.json"), Path("/root/.docker/config.json"), True),
     ):
         mount = f"type=bind,src={source},dst={destination}"
         command.extend(["--mount", f"{mount},readonly" if readonly else mount])

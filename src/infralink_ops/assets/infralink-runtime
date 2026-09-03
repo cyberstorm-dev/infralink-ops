@@ -28,6 +28,7 @@ normal_mounts=(
     --mount type=bind,src=/var/log,dst=/var/log
     --mount type=bind,src=/run,dst=/run
     --mount type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock
+    --mount type=bind,src=/root/.docker/config.json,dst=/root/.docker/config.json,readonly
     --mount type=bind,src=/etc/infralink/registry-read,dst=/etc/infralink/registry-read,readonly
 )
 

@@ -39,6 +39,7 @@ def test_host_interface_assets_are_packaged_with_canonical_runtime_contract() ->
     assert "--pull always" in runtime_source
     assert "--privileged" in runtime_source
     assert "--pid=host" in runtime_source
+    assert "src=/root/.docker/config.json,dst=/root/.docker/config.json,readonly" in runtime_source
     assert "reconcile" in runtime_source
     assert "Usage:" not in runtime_source
     assert "-e INFRALINK_HOST_ROOT=/infralink-host-interface" in runtime_source
