@@ -27,7 +27,7 @@ state, not an operator editing surface.
 First collect the controller's read-only evidence:
 
 ```sh
-infralink-host doctor
+infralink controller doctor
 systemctl status infralink-host-reconcile.service
 ```
 
@@ -54,7 +54,7 @@ or an environment-owned application check.
    and acceptance evidence.
 2. Use the Registry's normal promotion mechanism to select that prior revision.
 3. Let the same controller path reconcile it on the target host.
-4. Verify `infralink-host doctor`, the persisted reconcile evidence, and the
+4. Verify `infralink controller doctor`, the persisted reconcile evidence, and the
    environment-owned acceptance checks again.
 
 Rollback is not a host-local `git checkout`, Docker Compose edit, or a manual

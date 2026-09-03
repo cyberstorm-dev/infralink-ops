@@ -47,7 +47,7 @@ def test_plan_reports_exact_bootstrap_writes_without_mutating_host_root(tmp_path
                 "/etc/infralink/registry-known_hosts",
                 "/var/lib/infralink/registry",
                 "/usr/local/bin/infralink",
-                "/usr/local/sbin/infralink-host",
+                "/usr/libexec/infralink/runtime",
                 "/etc/systemd/system/infralink-host-reconcile.service",
                 "/etc/systemd/system/infralink-host-reconcile.timer",
             ],

@@ -3,12 +3,6 @@ set -euo pipefail
 
 HOST_ENV_FILE="${INFRALINK_HOST_ENV_FILE:-/etc/infralink/host.env}"
 
-usage() {
-    cat <<'EOF'
-Usage: infralink-host <doctor|reconcile|bootstrap --apply> [arguments...]
-EOF
-}
-
 if [[ ! -r "$HOST_ENV_FILE" ]]; then
     printf 'Missing host environment: %s\n' "$HOST_ENV_FILE" >&2
     exit 78
@@ -25,9 +19,6 @@ if [[ -z "$image" ]]; then
     exit 78
 fi
 
-mode="${1:-}"
-shift || true
-
 normal_mounts=(
     --mount type=bind,src=/etc/infralink/host.env,dst=/etc/infralink/host.env,readonly
     --mount type=bind,src=/etc/infralink/registry-known_hosts,dst=/etc/infralink/registry-known_hosts,readonly
@@ -43,6 +34,7 @@ normal_mounts=(
 host_interface_mounts=(
     --mount type=bind,src=/usr/local/bin,dst=/infralink-host-interface/usr/local/bin
     --mount type=bind,src=/usr/local/sbin,dst=/infralink-host-interface/usr/local/sbin
+    --mount type=bind,src=/usr/libexec/infralink,dst=/infralink-host-interface/usr/libexec/infralink
     --mount type=bind,src=/etc/systemd/system,dst=/infralink-host-interface/etc/systemd/system
 )
 
@@ -57,56 +49,14 @@ controller_env=(
     -e GIT_SSH_COMMAND
 )
 
-run_normal() {
-    exec docker run --rm --pull always \
-        --network=host \
-        "${controller_env[@]}" \
-        "${normal_mounts[@]}" \
-        "$image" "$mode" "$@"
-}
-
-run_reconcile() {
-    exec docker run --rm --pull always \
-        --privileged \
-        --pid=host \
-        --network=host \
-        "${controller_env[@]}" \
-        "${normal_mounts[@]}" \
-        -e INFRALINK_HOST_ROOT=/infralink-host-interface \
-        "${host_interface_mounts[@]}" \
-        "$image" "$mode" "$@"
-}
-
-case "$mode" in
-    doctor)
-        run_normal "$@"
-        ;;
-    reconcile)
-        run_reconcile "$@"
-        ;;
-    bootstrap)
-        if [[ "${1:-}" != "--apply" ]]; then
-            printf '%s\n' 'bootstrap requires --apply' >&2
-            exit 64
-        fi
-        shift
-        exec docker run --rm --pull always \
-            --privileged \
-            --pid=host \
-            --network=host \
-            "${controller_env[@]}" \
-            -e INFRALINK_BOOTSTRAP_APPLY=1 \
-            -e INFRALINK_HOST_ROOT=/host \
-            "${normal_mounts[@]}" \
-            --mount type=bind,src=/,dst=/host \
-            "$image" bootstrap "$@"
-        ;;
-    --help|-h|help|"")
-        usage
-        ;;
-    *)
-        printf 'Unknown host mode: "%s"\n' "$mode" >&2
-        usage >&2
-        exit 64
-        ;;
-esac
+# This is a systemd-only runtime shim. Public operator commands run through
+# /usr/local/bin/infralink and its typed Agent Surface projection.
+exec docker run --rm --pull always \
+    --privileged \
+    --pid=host \
+    --network=host \
+    "${controller_env[@]}" \
+    "${normal_mounts[@]}" \
+    -e INFRALINK_HOST_ROOT=/infralink-host-interface \
+    "${host_interface_mounts[@]}" \
+    "$image" reconcile

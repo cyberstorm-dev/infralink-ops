@@ -59,7 +59,7 @@ Use immutable `sha-<short-sha>` tags or digests for evidence. Do not use `head` 
 
 1. Confirm the registry revision that the environment intended to run.
 2. Confirm `/var/lib/infralink/registry` resolved to that revision.
-3. Run `infralink-host doctor`.
+3. Run `infralink controller doctor`.
 4. Check `systemctl status infralink-host-reconcile.timer`.
 5. Inspect `/var/lib/infralink/reconcile-result.yml` for the last reconcile
    evidence.

@@ -31,7 +31,7 @@ def test_refresh_materializes_only_packaged_host_interface_assets_atomically(
 
     payload, status = host_interface.main(["refresh", "--host-root", str(host_root)])
 
-    launcher = host_root / "usr/local/sbin/infralink-host"
+    runtime = host_root / "usr/libexec/infralink/runtime"
     service = host_root / "etc/systemd/system/infralink-host-reconcile.service"
     timer = host_root / "etc/systemd/system/infralink-host-reconcile.timer"
     assert status == 0
@@ -40,14 +40,15 @@ def test_refresh_materializes_only_packaged_host_interface_assets_atomically(
     assert payload["result"] == {
         "changed": True,
         "systemd_reloaded": True,
+        "retired_assets": [],
         "assets": [
             {"path": "/usr/local/bin/infralink", "mode": "0755"},
-            {"path": "/usr/local/sbin/infralink-host", "mode": "0755"},
+            {"path": "/usr/libexec/infralink/runtime", "mode": "0755"},
             {"path": "/etc/systemd/system/infralink-host-reconcile.service", "mode": "0644"},
             {"path": "/etc/systemd/system/infralink-host-reconcile.timer", "mode": "0644"},
         ],
     }
-    assert stat.S_IMODE(launcher.stat().st_mode) == 0o755
+    assert stat.S_IMODE(runtime.stat().st_mode) == 0o755
     assert stat.S_IMODE(service.stat().st_mode) == 0o644
     assert stat.S_IMODE(timer.stat().st_mode) == 0o644
     assert calls == [SYSTEMD_RELOAD]
@@ -79,6 +80,32 @@ def test_refresh_is_idempotent_without_reloading_systemd_when_assets_match(
     assert calls == []
 
 
+def test_refresh_retires_the_legacy_public_looking_launcher_after_unit_reload(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import infralink_ops.controller_host_interface as host_interface
+
+    monkeypatch.setattr(host_interface.subprocess, "run", lambda *_args, **_kwargs: None)
+    host_root = tmp_path / "host"
+    legacy = host_root / "usr/local/sbin/infralink-host"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    host_interface.main(["refresh", "--host-root", str(host_root)])
+    legacy = host_root / "usr/local/sbin/infralink-host"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    payload, status = host_interface.main(["refresh", "--host-root", str(host_root)])
+
+    assert status == 0
+    assert payload["ok"] is True
+    assert payload["result"]["changed"] is True
+    assert payload["result"]["retired_assets"] == ["/usr/local/sbin/infralink-host"]
+    assert not legacy.exists()
+    assert (host_root / "usr/libexec/infralink/runtime").is_file()
+
+
 def test_refresh_preflights_every_destination_before_writing(tmp_path: Path, monkeypatch) -> None:
     import infralink_ops.controller_host_interface as host_interface
 
@@ -94,7 +121,22 @@ def test_refresh_preflights_every_destination_before_writing(tmp_path: Path, mon
 
     assert status == 78
     assert payload["error"] == {"code": "host_interface_path_unsafe"}
-    assert not (host_root / "usr/local/sbin/infralink-host").exists()
+    assert not (host_root / "usr/libexec/infralink/runtime").exists()
+
+
+def test_refresh_rejects_a_symlinked_retired_launcher_parent(tmp_path: Path, monkeypatch) -> None:
+    import infralink_ops.controller_host_interface as host_interface
+
+    monkeypatch.setattr(host_interface.subprocess, "run", lambda *_args, **_kwargs: None)
+    host_root = tmp_path / "host"
+    (host_root / "usr").mkdir(parents=True)
+    (host_root / "usr/local").symlink_to(tmp_path / "outside", target_is_directory=True)
+
+    payload, status = host_interface.main(["refresh", "--host-root", str(host_root)])
+
+    assert status == 78
+    assert payload["error"] == {"code": "host_interface_path_unsafe"}
+    assert not (host_root / "usr/libexec/infralink/runtime").exists()
 
 
 def test_refresh_rolls_back_changed_units_when_systemd_reload_fails(

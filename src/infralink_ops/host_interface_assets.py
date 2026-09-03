@@ -8,7 +8,7 @@ from pathlib import Path
 _ASSET_NAMES = frozenset(
     {
         "infralink",
-        "infralink-host",
+        "infralink-runtime",
         "infralink-host-reconcile.service",
         "infralink-host-reconcile.timer",
     }

@@ -2,7 +2,7 @@
 
 ## BLUF
 
-Start with read-only evidence. Use `infralink-host doctor` to learn whether the
+Start with read-only evidence. Use `infralink controller doctor` to learn whether the
 installed controller agrees with its configured Registry input, then inspect
 the systemd timer and the last reconcile evidence. The launcher returns
 machine-readable evidence from the controller; it is not a second place to
@@ -18,7 +18,7 @@ or copy that file into tickets: it can contain private runtime references.
 Confirm the launcher is present, then collect read-only context:
 
 ```sh
-command -v infralink-host
+command -v infralink
 systemctl status infralink-host-reconcile.timer
 ```
 
@@ -31,7 +31,7 @@ procedure rather than manually copying launcher files.
 Run Doctor before retrying a reconcile or changing any configuration:
 
 ```sh
-infralink-host doctor
+infralink controller doctor
 ```
 
 Doctor checks the controller's declared Registry, reconcile, Compose, firewall,
@@ -64,18 +64,19 @@ one-shot unit rather than invoking the launcher directly:
 sudo systemctl start infralink-host-reconcile.service
 ```
 
-Re-run `infralink-host doctor` after the unit completes. If the evidence still
+Re-run `infralink controller doctor` after the unit completes. If the evidence still
 fails, follow the [controller runtime triage guide](controller-runtime-guide.md#triage-a-stale-host)
 and change the owning source rather than patching runtime output. Do not edit `/opt/services` directly.
 
 ## Bootstrap Is An Explicit Host Change
 
-`infralink-host bootstrap --apply` writes the host interface and enables the
-reconcile timer. It requires an explicit `--apply` gate and is not part of
-ordinary diagnosis or rollout recovery:
+The canonical `infralink host bootstrap` operation writes the host interface
+and enables the reconcile timer. It requires an explicit `--apply` gate and is
+not part of ordinary diagnosis or rollout recovery. Run it from the approved
+control environment, not through a host-local shim:
 
 ```sh
-sudo infralink-host bootstrap --apply
+infralink help host bootstrap
 ```
 
 Use bootstrap only through an approved host-provisioning change. Before using
