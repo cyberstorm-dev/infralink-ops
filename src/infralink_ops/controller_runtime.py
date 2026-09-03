@@ -56,6 +56,9 @@ RUNTIME_ROOT = Path("/var/lib/infralink")
 SERVICES_ROOT = Path("/opt/services")
 REGISTRY_KEY = Path("/etc/infralink/registry-read")
 REGISTRY_KNOWN_HOSTS = Path("/etc/infralink/registry-known_hosts")
+# A handed-off controller runs in a nested container.  This fixed PID-1 view
+# reaches the host mount namespace without introducing another host path input.
+HOST_NAMESPACE_ROOT = Path("/proc/1/root")
 
 
 class ControllerRuntimeError(ValueError):
@@ -746,6 +749,28 @@ def _inner_reconcile(
     }
 
 
+def _transition_handed_off_controller(context: ControllerContext, revision: str) -> None:
+    """Retire the legacy seed only after this direct image is Registry-verified."""
+
+    declared_controller = resolve_controller_reference(
+        context.registry_root, context.host_uuid, expected_revision=revision
+    )
+    handoff_reference = _required(context.environment, "INFRALINK_CONTROLLER_HANDOFF_REFERENCE")
+    if handoff_reference != declared_controller or context.handoff_digest is None:
+        raise ControllerRuntimeError("controller_handoff_invalid")
+    if _controller_digest(declared_controller, pull=False) != context.handoff_digest:
+        raise ControllerRuntimeError("controller_handoff_invalid")
+    try:
+        controller_host_interface.refresh(HOST_NAMESPACE_ROOT)
+        controller_host_interface.transition_controller_seed(
+            HOST_NAMESPACE_ROOT, context.handoff_digest
+        )
+    except controller_host_interface.HostInterfaceError as error:
+        raise ControllerRuntimeError(
+            "controller_seed_transition_failed", stage="host_interface"
+        ) from error
+
+
 def reconcile(context: ControllerContext) -> dict[str, Any]:
     """Run the sole controller lifecycle without a legacy adapter fallback."""
 
@@ -784,6 +809,7 @@ def reconcile(context: ControllerContext) -> dict[str, Any]:
         ):
             raise ControllerRuntimeError("controller_handoff_invalid")
         with _reconcile_lock(context):
+            _transition_handed_off_controller(context, revision)
             result = _inner_reconcile(context, revision, context.handoff_digest)
             cleanup, cleanup_status = controller_images.prune_unused_images("docker")
             if cleanup_status:

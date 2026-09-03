@@ -64,6 +64,9 @@ def test_inner_reconcile_uses_one_handoff_revision_and_publishes_success(
     monkeypatch.setattr(controller_runtime, "RUNTIME_ROOT", runtime)
     monkeypatch.setattr(controller_runtime, "REGISTRY_ROOT", tmp_path / "registry")
     monkeypatch.setattr(controller_runtime, "SERVICES_ROOT", tmp_path / "services")
+    monkeypatch.setattr(
+        controller_runtime, "_transition_handed_off_controller", lambda *_args: None
+    )
 
     applied: list[tuple[str, str]] = []
     published: list[tuple[str, str, dict[str, object]]] = []
@@ -98,6 +101,110 @@ def test_inner_reconcile_uses_one_handoff_revision_and_publishes_success(
     assert payload["result"]["registry_revision"] == REVISION
     assert applied == [(REVISION, DIGEST)]
     assert published == [(REVISION, DIGEST, {"status": "ok"})]
+
+
+def test_handoff_reconcile_transitions_the_host_seed_before_applying_services(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    monkeypatch.setattr(controller_runtime, "RUNTIME_ROOT", runtime)
+    host_namespace_root = tmp_path / "host-namespace"
+    host_namespace_root.mkdir()
+    monkeypatch.setattr(controller_runtime, "HOST_NAMESPACE_ROOT", host_namespace_root)
+    monkeypatch.setattr(controller_runtime, "REGISTRY_ROOT", tmp_path / "registry")
+    monkeypatch.setattr(
+        controller_runtime,
+        "resolve_controller_reference",
+        lambda *_args, **_kwargs: "ghcr.io/example/infralink-controller:main",
+    )
+    monkeypatch.setattr(controller_runtime, "_controller_digest", lambda *_args, **_kwargs: DIGEST)
+    transitions: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        controller_runtime.controller_host_interface,
+        "transition_controller_seed",
+        lambda root, reference: (
+            transitions.append(("seed", (root, reference))) or {"changed": True}
+        ),
+    )
+    monkeypatch.setattr(
+        controller_runtime.controller_host_interface,
+        "refresh",
+        lambda root: transitions.append(("interface", root)) or {"changed": True},
+    )
+    applied: list[bool] = []
+    monkeypatch.setattr(
+        controller_runtime,
+        "_inner_reconcile",
+        lambda *_args: (
+            applied.append(True)
+            or {
+                "phase": "apply",
+                "status": "applied",
+                "registry_revision": REVISION,
+                "actions": [],
+                "evidence": [],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        controller_runtime.controller_images, "prune_unused_images", lambda _: ({}, 0)
+    )
+    monkeypatch.setattr(controller_runtime, "_publish_success", lambda *_args, **_kwargs: None)
+
+    payload, status = controller_runtime.main(["reconcile"], environ=_environment(handoff=True))
+
+    assert status == 0
+    assert payload["ok"] is True
+    assert transitions == [
+        ("interface", host_namespace_root),
+        ("seed", (host_namespace_root, DIGEST)),
+    ]
+    assert applied == [True]
+
+
+def test_handoff_seed_transition_failure_stops_before_service_apply(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    monkeypatch.setattr(controller_runtime, "RUNTIME_ROOT", runtime)
+    monkeypatch.setattr(controller_runtime, "REGISTRY_ROOT", tmp_path / "registry")
+    monkeypatch.setattr(
+        controller_runtime,
+        "resolve_controller_reference",
+        lambda *_args, **_kwargs: "ghcr.io/example/infralink-controller:main",
+    )
+    monkeypatch.setattr(controller_runtime, "_controller_digest", lambda *_args, **_kwargs: DIGEST)
+    persisted_seed: list[str] = []
+    monkeypatch.setattr(
+        controller_runtime.controller_host_interface,
+        "refresh",
+        lambda *_args: (_ for _ in ()).throw(
+            controller_runtime.controller_host_interface.HostInterfaceError(
+                "host_interface_systemd_reload_failed"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        controller_runtime.controller_host_interface,
+        "transition_controller_seed",
+        lambda *_args: persisted_seed.append("changed") or {"changed": True},
+    )
+    applied: list[bool] = []
+    monkeypatch.setattr(controller_runtime, "_inner_reconcile", lambda *_args: applied.append(True))
+    failures: list[str] = []
+    monkeypatch.setattr(
+        controller_runtime, "_publish_failure", lambda _context, error: failures.append(error.stage)
+    )
+
+    payload, status = controller_runtime.main(["reconcile"], environ=_environment(handoff=True))
+
+    assert status == 78
+    assert payload["error"] == {"code": "controller_seed_transition_failed"}
+    assert applied == []
+    assert failures == ["host_interface"]
+    assert persisted_seed == []
 
 
 def test_invalid_handoff_fails_before_any_apply_stage(tmp_path: Path, monkeypatch) -> None:
