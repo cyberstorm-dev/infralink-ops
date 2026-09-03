@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
+import shlex
 import stat
 import subprocess
 import sys
@@ -60,6 +62,9 @@ SYSTEMD_UNIT_ASSET_NAMES = frozenset(
     {"infralink-host-reconcile.service", "infralink-host-reconcile.timer"}
 )
 RETIRED_DESTINATIONS = ("/usr/local/sbin/infralink-host",)
+HOST_ENVIRONMENT_DESTINATION = "/etc/infralink/host.env"
+_IMMUTABLE_CONTROLLER_REFERENCE = re.compile(r".+@sha256:[0-9a-f]{64}")
+_CONTROLLER_SEED_LINE = re.compile(r"^INFRALINK_CONTROLLER_IMAGE=.*$")
 
 
 def _payload(
@@ -127,6 +132,45 @@ def _retired_destinations(host_root: Path) -> tuple[Path, ...]:
         _ensure_safe_parent(destination, host_root=host_root, create=False)
         _snapshot(destination)
     return destinations
+
+
+def _host_environment(host_root: Path) -> Path:
+    destination = host_root / HOST_ENVIRONMENT_DESTINATION.removeprefix("/")
+    _ensure_safe_parent(destination, host_root=host_root, create=False)
+    snapshot = _snapshot(destination)
+    if snapshot is None:
+        raise HostInterfaceError("controller_seed_missing")
+    return destination
+
+
+def transition_controller_seed(host_root: Path, controller_reference: str) -> dict[str, bool]:
+    """Persist one verified immutable direct-controller seed without changing intent."""
+
+    if _IMMUTABLE_CONTROLLER_REFERENCE.fullmatch(controller_reference) is None:
+        raise HostInterfaceError("controller_seed_invalid")
+    destination = _host_environment(host_root)
+    try:
+        source = destination.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        raise HostInterfaceError("controller_seed_invalid") from error
+    if "\x00" in source:
+        raise HostInterfaceError("controller_seed_invalid")
+    lines = source.splitlines(keepends=True)
+    matches = [
+        index
+        for index, line in enumerate(lines)
+        if _CONTROLLER_SEED_LINE.fullmatch(line.rstrip("\n"))
+    ]
+    if len(matches) != 1:
+        raise HostInterfaceError("controller_seed_invalid")
+    index = matches[0]
+    replacement = f"INFRALINK_CONTROLLER_IMAGE={shlex.quote(controller_reference)}\n"
+    if lines[index] == replacement:
+        return {"changed": False}
+    mode = stat.S_IMODE(destination.stat().st_mode)
+    lines[index] = replacement
+    _write_atomically(destination, contents="".join(lines).encode("utf-8"), mode=mode)
+    return {"changed": True}
 
 
 def _write_atomically(destination: Path, *, contents: bytes, mode: int) -> None:
