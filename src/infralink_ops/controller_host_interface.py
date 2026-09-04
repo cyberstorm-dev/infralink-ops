@@ -145,11 +145,17 @@ def _retired_destinations(host_root: Path) -> tuple[Path, ...]:
 def _legacy_v2_reconcile_is_inactive() -> None:
     """Refuse to replace a deployment path that could still apply state."""
 
+    if _legacy_v2_reconcile_is_active():
+        raise HostInterfaceError("legacy_reconcile_active")
+
+
+def _legacy_v2_reconcile_is_active() -> bool:
+    """Whether the retiring V2 service or timer can still apply state."""
+
     for unit in LEGACY_V2_RECONCILE_UNITS:
         if _systemd_unit_is_active(unit):
-            raise HostInterfaceError("legacy_reconcile_active")
-    if _systemd_unit_is_enabled("self-deploy-v2-reconcile.timer"):
-        raise HostInterfaceError("legacy_reconcile_active")
+            return True
+    return _systemd_unit_is_enabled("self-deploy-v2-reconcile.timer")
 
 
 def _canonical_reconcile_timer_is_ready() -> bool:
@@ -343,14 +349,21 @@ def refresh(
 def stage(host_root: Path) -> dict[str, object]:
     """Install the canonical interface without retiring the active seed path.
 
-    The seed-to-selected-controller handoff uses this exactly once.  A later
-    canonical timer reconcile calls ``refresh`` and performs guarded retirement.
+    A selected controller reached from a still-running V2 parent preserves its
+    files, then disables the V2 timer. A later canonical invocation observes
+    that V2 is inactive and performs the existing guarded retirement.
     """
 
-    result = refresh(host_root, retire_legacy=False, require_canonical_timer=True)
+    legacy_active = _legacy_v2_reconcile_is_active()
+    result = refresh(
+        host_root,
+        retire_legacy=not legacy_active,
+        require_canonical_timer=True,
+    )
     if not _canonical_reconcile_timer_is_ready():
         raise HostInterfaceError("canonical_reconcile_timer_required")
-    _disable_legacy_v2_reconcile_timer()
+    if legacy_active:
+        _disable_legacy_v2_reconcile_timer()
     return result
 
 
