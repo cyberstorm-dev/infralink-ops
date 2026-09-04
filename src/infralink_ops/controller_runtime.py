@@ -327,7 +327,6 @@ def _handoff(
             command.extend(["-e", key])
     for key in sorted(explicit):
         command.extend(["-e", f"{key}={environment[key]}"])
-    command.extend(["-e", "INFRALINK_HOST_ROOT=/infralink-host-interface"])
     for source, destination, readonly in (
         (Path("/var/lib"), Path("/var/lib"), False),
         (context.services_root, context.services_root, False),
@@ -337,18 +336,6 @@ def _handoff(
         (REGISTRY_KNOWN_HOSTS, REGISTRY_KNOWN_HOSTS, True),
         (Path("/var/run/docker.sock"), Path("/var/run/docker.sock"), False),
         (Path("/root/.docker/config.json"), Path("/root/.docker/config.json"), True),
-        (Path("/usr/local/bin"), Path("/infralink-host-interface/usr/local/bin"), False),
-        (Path("/usr/local/sbin"), Path("/infralink-host-interface/usr/local/sbin"), False),
-        (
-            Path("/usr/libexec/infralink"),
-            Path("/infralink-host-interface/usr/libexec/infralink"),
-            False,
-        ),
-        (
-            Path("/etc/systemd/system"),
-            Path("/infralink-host-interface/etc/systemd/system"),
-            False,
-        ),
     ):
         mount = f"type=bind,src={source},dst={destination}"
         command.extend(["--mount", f"{mount},readonly" if readonly else mount])
@@ -662,12 +649,6 @@ def _inner_reconcile(
             _controller_digest(declared_controller, pull=False) != controller_digest
         ):
             raise ControllerRuntimeError("controller_handoff_invalid")
-        try:
-            controller_host_interface.refresh(context.host_root)
-        except controller_host_interface.HostInterfaceError as error:
-            raise ControllerRuntimeError(
-                "host_interface_refresh_failed", stage="host_interface"
-            ) from error
         images = resolve_host_images(
             context.registry_root, context.host_uuid, expected_revision=revision
         )

@@ -371,71 +371,6 @@ def test_handoff_mounts_host_var_lib_for_runtime_and_textfile_evidence(
     assert (
         "type=bind,src=/root/.docker/config.json,dst=/root/.docker/config.json,readonly" in command
     )
-    assert "-e" in command
-    assert "INFRALINK_HOST_ROOT=/infralink-host-interface" in command
-    assert "type=bind,src=/usr/local/bin,dst=/infralink-host-interface/usr/local/bin" in command
-    assert "type=bind,src=/usr/local/sbin,dst=/infralink-host-interface/usr/local/sbin" in command
-    assert (
-        "type=bind,src=/usr/libexec/infralink,dst=/infralink-host-interface/usr/libexec/infralink"
-        in command
-    )
-    assert (
-        "type=bind,src=/etc/systemd/system,dst=/infralink-host-interface/etc/systemd/system"
-        in command
-    )
-
-
-def test_inner_reconcile_refreshes_host_interface_after_handoff_validation(
-    tmp_path: Path, monkeypatch
-) -> None:
-    context = controller_runtime.ControllerContext(
-        host_uuid=HOST_ID,
-        registry_remote="ssh://git@example.invalid/infra-registry.git",
-        registry_ref="main",
-        registry_root=tmp_path / "registry",
-        runtime_root=tmp_path / "runtime",
-        services_root=tmp_path / "services",
-        registry_key=tmp_path / "registry-read",
-        registry_known_hosts=tmp_path / "registry-known-hosts",
-        host_root=tmp_path / "host-interface",
-        textfile_directory=tmp_path / "textfile",
-        handoff_digest=DIGEST,
-        environment=_environment(handoff=True),
-    )
-    refreshed: list[Path] = []
-
-    monkeypatch.setattr(
-        controller_runtime, "verify_registry_revision", lambda *_args, **_kwargs: None
-    )
-    monkeypatch.setattr(
-        controller_runtime,
-        "resolve_controller_reference",
-        lambda *_args, **_kwargs: "ghcr.io/example/infralink-controller:main",
-    )
-    monkeypatch.setattr(controller_runtime, "_controller_digest", lambda *_args, **_kwargs: DIGEST)
-    monkeypatch.setattr(
-        controller_runtime.controller_host_interface,
-        "refresh",
-        lambda host_root: refreshed.append(host_root),
-    )
-
-    class StopAfterRefresh(Exception):
-        pass
-
-    monkeypatch.setattr(
-        controller_runtime,
-        "resolve_host_images",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(StopAfterRefresh()),
-    )
-
-    try:
-        controller_runtime._inner_reconcile(context, REVISION, DIGEST)
-    except StopAfterRefresh:
-        pass
-    else:
-        raise AssertionError("expected image resolution to stop the test")
-
-    assert refreshed == [context.host_root]
 
 
 def test_invalid_rendered_compose_stops_before_firewall_or_service_mutation(
@@ -492,11 +427,6 @@ def test_invalid_rendered_compose_stops_before_firewall_or_service_mutation(
         lambda *_args, **_kwargs: ([], ()),
     )
     monkeypatch.setattr(
-        controller_runtime.controller_host_interface,
-        "refresh",
-        lambda _host_root: {"changed": False},
-    )
-    monkeypatch.setattr(
         controller_runtime,
         "_validate_compose",
         invalid_compose,
@@ -550,11 +480,6 @@ def test_invalid_artifact_projection_preserves_live_services(tmp_path: Path, mon
     monkeypatch.setattr(controller_runtime, "_controller_digest", lambda *_args, **_kwargs: DIGEST)
     monkeypatch.setattr(controller_runtime, "resolve_host_images", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(controller_runtime, "_secret_environment", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(
-        controller_runtime.controller_host_interface,
-        "refresh",
-        lambda _host_root: {"changed": False},
-    )
 
     def render(**kwargs: object) -> object:
         services_dir = kwargs["services_dir"]
