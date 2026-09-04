@@ -8,7 +8,6 @@ from pathlib import Path
 def _environment() -> dict[str, str]:
     return {
         "INFRALINK_HOST_UUID": "9157ddeb-cb6d-4d55-8252-9db358f5d932",
-        "INFRALINK_CONTROLLER_IMAGE": "ghcr.io/example/infralink-controller:main",
         "BWS_ACCESS_TOKEN": "test-token",
         "INFRALINK_REGISTRY_DEPLOY_KEY_SECRET_ID": "registry-read-key",
         "INFRALINK_REGISTRY_REPO_URL": "ssh://git@example.invalid/infra-registry.git",
@@ -286,7 +285,6 @@ def test_apply_initializes_the_single_registry_checkout_when_its_parent_is_missi
     (host_root / "etc/infralink/registry-known_hosts").write_text("unused\n", encoding="utf-8")
     configuration = bootstrap.BootstrapConfiguration(
         host_uuid="9157ddeb-cb6d-4d55-8252-9db358f5d932",
-        controller_image="ghcr.io/example/controller:main",
         bws_access_token="test-token",
         deploy_key_secret_id="registry-read-key",
         registry_remote=str(origin),

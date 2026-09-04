@@ -33,10 +33,13 @@ def test_host_interface_assets_are_packaged_with_canonical_runtime_contract() ->
     )
     assert "-e INFRALINK_GATUS_URL" in operator_cli_source
     assert "-e INFRALINK_GATUS_TOKEN" in operator_cli_source
-    assert "-e INFRALINK_CONTROLLER_IMAGE" in operator_cli_source
+    assert "INFRALINK_CONTROLLER_IMAGE" not in operator_cli_source
+    assert "ghcr.io/cyberstorm-dev/infralink-ops-controller:main" in operator_cli_source
     runtime_source = runtime.read_text(encoding="utf-8")
     assert "/var/lib/infralink/registry" in runtime_source
     assert "--pull always" in runtime_source
+    assert "INFRALINK_CONTROLLER_IMAGE" not in runtime_source
+    assert "ghcr.io/cyberstorm-dev/infralink-ops-controller:main" in runtime_source
     assert "--privileged" in runtime_source
     assert "--pid=host" in runtime_source
     assert "src=/root/.docker/config.json,dst=/root/.docker/config.json,readonly" in runtime_source

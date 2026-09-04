@@ -39,12 +39,9 @@ set -a
 source "$HOST_ENV_FILE"
 set +a
 
-image="${INFRALINK_CONTROLLER_IMAGE:-}"
-if [[ -z "$image" ]]; then
-    emit_preflight_error configuration_required "Controller image is not configured" \
-        "Run host bootstrap --apply for this declared host" environment INFRALINK_CONTROLLER_IMAGE
-    exit 78
-fi
+# Public operator calls use the same non-authoritative transport image as the
+# timer. It reads the configured Registry checkout for every operation.
+bootstrap_image='ghcr.io/cyberstorm-dev/infralink-ops-controller:main'
 
 operator_mounts=(
     --mount type=bind,src=/var/lib/infralink/registry,dst=/var/lib/infralink/registry,readonly
@@ -56,11 +53,10 @@ if [[ -d /root/.ssh ]]; then
 fi
 
 # Docker writes pull progress to stdout. Keep it off the typed CLI/MCP stream.
-docker pull "$image" >&2
+docker pull "$bootstrap_image" >&2
 
 exec docker run --rm -i --pull never --network=host \
     -e INFRALINK_HOST_UUID \
-    -e INFRALINK_CONTROLLER_IMAGE \
     -e INFRALINK_REGISTRY=/var/lib/infralink/registry \
     -e INFRALINK_EDGES=/var/lib/infralink/registry/network/main-dev/edges/edges.yml \
     -e INFRALINK_OBSERVATION_PLAN=/var/lib/infralink/registry/operations/observation/core-plan.json \
@@ -71,4 +67,4 @@ exec docker run --rm -i --pull never --network=host \
     -e INFRALINK_GATUS_TOKEN \
     "${operator_mounts[@]}" \
     --entrypoint /usr/local/bin/infralink \
-    "$image" "$@"
+    "$bootstrap_image" "$@"

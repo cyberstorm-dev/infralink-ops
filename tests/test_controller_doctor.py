@@ -35,7 +35,6 @@ def test_rejects_reconcile_evidence_for_a_different_configured_source(tmp_path: 
     host_env = tmp_path / "host.env"
     host_env.write_text(
         f"INFRALINK_HOST_UUID={UUID}\n"
-        f"INFRALINK_CONTROLLER_IMAGE={IMAGE}\n"
         "INFRALINK_REGISTRY_REF=main\n"
         f"INFRALINK_REGISTRY_REPO_URL={REPOSITORY}\n",
         encoding="utf-8",
@@ -87,7 +86,6 @@ def test_reports_healthy_only_with_matching_local_runtime_evidence(tmp_path: Pat
     host_env = tmp_path / "host.env"
     host_env.write_text(
         f"INFRALINK_HOST_UUID={UUID}\n"
-        f"INFRALINK_CONTROLLER_IMAGE={IMAGE}\n"
         "INFRALINK_REGISTRY_REF=main\n"
         f"INFRALINK_REGISTRY_REPO_URL={REPOSITORY}\n"
         f"INFRALINK_REGISTRY_DIR={registry}\n"
@@ -143,7 +141,6 @@ def test_rejects_metric_substrings_that_would_falsely_report_convergence(tmp_pat
     host_env = tmp_path / "host.env"
     host_env.write_text(
         f"INFRALINK_HOST_UUID={UUID}\n"
-        f"INFRALINK_CONTROLLER_IMAGE={IMAGE}\n"
         "INFRALINK_REGISTRY_REF=main\n"
         f"INFRALINK_REGISTRY_REPO_URL={REPOSITORY}\n",
         encoding="utf-8",
@@ -240,7 +237,6 @@ def _healthy_runtime(
     host_env = tmp_path / "host.env"
     host_env.write_text(
         f"INFRALINK_HOST_UUID={UUID}\n"
-        f"INFRALINK_CONTROLLER_IMAGE={IMAGE}\n"
         "INFRALINK_REGISTRY_REF=main\n"
         f"INFRALINK_REGISTRY_REPO_URL={REPOSITORY}\n"
         f"INFRALINK_REGISTRY_DIR={registry}\n"

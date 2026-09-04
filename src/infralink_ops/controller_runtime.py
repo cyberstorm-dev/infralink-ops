@@ -82,7 +82,6 @@ class ControllerContext:
     """One fixed runtime context derived from the host controller contract."""
 
     host_uuid: str
-    controller_image: str
     registry_remote: str
     registry_ref: str
     registry_root: Path
@@ -117,7 +116,6 @@ def controller_context(environ: Mapping[str, str]) -> ControllerContext:
 
     return ControllerContext(
         host_uuid=_required(environ, "INFRALINK_HOST_UUID"),
-        controller_image=_required(environ, "INFRALINK_CONTROLLER_IMAGE"),
         registry_remote=_required(environ, "INFRALINK_REGISTRY_REPO_URL"),
         registry_ref=_required(environ, "INFRALINK_REGISTRY_REF"),
         registry_root=REGISTRY_ROOT,
@@ -315,7 +313,6 @@ def _handoff(
     ]
     inherited = {
         "INFRALINK_HOST_UUID",
-        "INFRALINK_CONTROLLER_IMAGE",
         "BWS_ACCESS_TOKEN",
         "INFRALINK_REGISTRY_REPO_URL",
         "INFRALINK_REGISTRY_REF",
@@ -747,76 +744,6 @@ def _inner_reconcile(
     }
 
 
-def _transition_handed_off_controller(context: ControllerContext, revision: str) -> None:
-    """Retire the legacy seed only after this direct image is Registry-verified."""
-
-    declared_controller = resolve_controller_reference(
-        context.registry_root, context.host_uuid, expected_revision=revision
-    )
-    handoff_reference = _required(context.environment, "INFRALINK_CONTROLLER_HANDOFF_REFERENCE")
-    if handoff_reference != declared_controller or context.handoff_digest is None:
-        raise ControllerRuntimeError("controller_handoff_invalid")
-    if _controller_digest(declared_controller, pull=False) != context.handoff_digest:
-        raise ControllerRuntimeError("controller_handoff_invalid")
-    command = [
-        "docker",
-        "run",
-        "--rm",
-        "--network=none",
-        "--pid=host",
-        "--privileged",
-        "--entrypoint",
-        "python",
-    ]
-    for source, destination in (
-        (Path("/etc/infralink"), Path("/infralink-host-interface/etc/infralink")),
-        (Path("/usr/local/bin"), Path("/infralink-host-interface/usr/local/bin")),
-        (Path("/usr/local/sbin"), Path("/infralink-host-interface/usr/local/sbin")),
-        (Path("/usr/libexec"), Path("/infralink-host-interface/usr/libexec")),
-        (Path("/etc/systemd/system"), Path("/infralink-host-interface/etc/systemd/system")),
-    ):
-        command.extend(["--mount", f"type=bind,src={source},dst={destination}"])
-    # Atomic replacement needs the host.env parent directory.  Mask every
-    # sibling controller credential; this helper has no Registry work to do.
-    for destination in (
-        Path("/infralink-host-interface/etc/infralink/registry-read"),
-        Path("/infralink-host-interface/etc/infralink/registry-known_hosts"),
-    ):
-        command.extend(["--mount", f"type=bind,src=/dev/null,dst={destination},readonly"])
-    try:
-        completed = subprocess.run(
-            [
-                *command,
-                context.handoff_digest,
-                "-m",
-                "infralink_ops.controller_host_transition",
-                "transition",
-                "--host-root",
-                "/infralink-host-interface",
-                "--controller-reference",
-                context.handoff_digest,
-            ],
-            check=False,
-            text=True,
-            capture_output=True,
-        )
-    except OSError as error:
-        raise ControllerRuntimeError(
-            "controller_seed_transition_failed", stage="host_interface"
-        ) from error
-    try:
-        payload = yaml.safe_load(completed.stdout)
-    except yaml.YAMLError:
-        payload = None
-    if (
-        completed.returncode
-        or not isinstance(payload, dict)
-        or payload.get("schema_version") != "infralink.ops.controller-host-transition/v1"
-        or payload.get("ok") is not True
-    ):
-        raise ControllerRuntimeError("controller_seed_transition_failed", stage="host_interface")
-
-
 def reconcile(context: ControllerContext) -> dict[str, Any]:
     """Run the sole controller lifecycle without a legacy adapter fallback."""
 
@@ -855,7 +782,6 @@ def reconcile(context: ControllerContext) -> dict[str, Any]:
         ):
             raise ControllerRuntimeError("controller_handoff_invalid")
         with _reconcile_lock(context):
-            _transition_handed_off_controller(context, revision)
             result = _inner_reconcile(context, revision, context.handoff_digest)
             cleanup, cleanup_status = controller_images.prune_unused_images("docker")
             if cleanup_status:

@@ -13,11 +13,9 @@ set -a
 source "$HOST_ENV_FILE"
 set +a
 
-image="${INFRALINK_CONTROLLER_IMAGE:-}"
-if [[ -z "$image" ]]; then
-    printf '%s\n' 'INFRALINK_CONTROLLER_IMAGE must name a seed image' >&2
-    exit 78
-fi
+# This transport image only fetches Registry and hands off to the controller
+# selected by its exact host declaration.  It is not host desired state.
+bootstrap_image='ghcr.io/cyberstorm-dev/infralink-ops-controller:main'
 
 normal_mounts=(
     --mount type=bind,src=/etc/infralink/host.env,dst=/etc/infralink/host.env,readonly
@@ -41,7 +39,6 @@ host_interface_mounts=(
 
 controller_env=(
     -e INFRALINK_HOST_UUID
-    -e INFRALINK_CONTROLLER_IMAGE
     -e BWS_ACCESS_TOKEN
     -e INFRALINK_REGISTRY_DEPLOY_KEY_SECRET_ID
     -e INFRALINK_REGISTRY_REPO_URL
@@ -60,4 +57,4 @@ exec docker run --rm --pull always \
     "${normal_mounts[@]}" \
     -e INFRALINK_HOST_ROOT=/infralink-host-interface \
     "${host_interface_mounts[@]}" \
-    "$image" reconcile
+    "$bootstrap_image" reconcile
