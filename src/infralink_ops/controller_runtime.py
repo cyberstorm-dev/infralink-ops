@@ -357,7 +357,15 @@ def _secret_environment(context: ControllerContext, revision: str) -> dict[str, 
             registry=context.registry_root, registry_revision=revision, host_id=context.host_uuid
         )
     except controller_render_secrets.RenderSecretsError as error:
-        raise ControllerRuntimeError("render_secrets_failed", stage="render_secrets") from error
+        raise ControllerRuntimeError(
+            "render_secrets_failed",
+            stage="render_secrets",
+            failure_details={
+                "stage": "render_secrets",
+                "exit_code": 78,
+                "diagnostic_code": controller_render_secrets.safe_diagnostic_code(error),
+            },
+        ) from error
     values: dict[str, str] = {}
     for export in exports:
         key, separator, raw_value = export.partition("=")

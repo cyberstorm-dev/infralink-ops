@@ -55,6 +55,32 @@ def test_private_runtime_rejects_unknown_modes() -> None:
     }
 
 
+def test_secret_resolution_failure_has_a_safe_typed_diagnostic(monkeypatch) -> None:
+    context = controller_runtime.controller_context(_environment(handoff=True))
+
+    monkeypatch.setattr(
+        controller_runtime.controller_render_secrets,
+        "resolve",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            controller_runtime.controller_render_secrets.RenderSecretsError(
+                "project_unavailable:private-project-alias"
+            )
+        ),
+    )
+
+    with pytest.raises(controller_runtime.ControllerRuntimeError) as raised:
+        controller_runtime._secret_environment(context, REVISION)
+
+    error = raised.value
+    assert str(error) == "render_secrets_failed"
+    assert error.stage == "render_secrets"
+    assert error.failure_details == {
+        "stage": "render_secrets",
+        "exit_code": 78,
+        "diagnostic_code": "render_secrets_project_unavailable",
+    }
+
+
 def test_inner_reconcile_uses_one_handoff_revision_and_publishes_success(
     tmp_path: Path, monkeypatch
 ) -> None:

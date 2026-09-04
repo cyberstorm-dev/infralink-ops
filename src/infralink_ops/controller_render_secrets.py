@@ -20,6 +20,28 @@ class RenderSecretsError(ValueError):
     """A declared render-secret binding cannot be resolved safely."""
 
 
+_SAFE_DIAGNOSTICS = {
+    "registry_checkout_failed": "render_secrets_registry_checkout_failed",
+    "deployment_invalid": "render_secrets_deployment_invalid",
+    "deployment_unavailable": "render_secrets_deployment_unavailable",
+    "render_secrets_invalid": "render_secrets_invalid",
+    "render_secrets_unavailable": "render_secrets_unavailable",
+    "bws_unavailable": "render_secrets_bws_unavailable",
+    "project_unavailable": "render_secrets_project_unavailable",
+    "project_response_invalid": "render_secrets_project_response_invalid",
+    "project_mapping_invalid": "render_secrets_project_mapping_invalid",
+    "render_binding_invalid": "render_secrets_binding_invalid",
+    "required_secret_missing": "render_secrets_required_secret_missing",
+}
+
+
+def safe_diagnostic_code(error: RenderSecretsError) -> str:
+    """Return a bounded diagnostic without exposing an alias or secret identifier."""
+
+    source = str(error).split(":", 1)[0]
+    return _SAFE_DIAGNOSTICS.get(source, "render_secrets_unavailable")
+
+
 def _mapping(value: object, *, error: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise RenderSecretsError(error)
