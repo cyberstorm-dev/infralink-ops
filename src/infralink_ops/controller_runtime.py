@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -54,8 +55,10 @@ SCHEMA_VERSION = "infralink.ops.controller-runtime/v1"
 REGISTRY_ROOT = Path("/var/lib/infralink/registry")
 RUNTIME_ROOT = Path("/var/lib/infralink")
 SERVICES_ROOT = Path("/opt/services")
+LEGACY_REGISTRY_ROOT = Path("/opt/infra/registry")
 REGISTRY_KEY = Path("/etc/infralink/registry-read")
 REGISTRY_KNOWN_HOSTS = Path("/etc/infralink/registry-known_hosts")
+OPS_CONTROLLER_REPOSITORY = "ghcr.io/cyberstorm-dev/infralink-ops-controller"
 
 
 class ControllerRuntimeError(ValueError):
@@ -156,6 +159,35 @@ def _runtime_directories(context: ControllerContext) -> None:
         raise ControllerRuntimeError(
             "runtime_directories_failed", stage="runtime_directories"
         ) from error
+
+
+def _retire_legacy_registry() -> bool:
+    """Remove only the obsolete nested Registry checkout after a successful apply."""
+
+    if not os.path.lexists(LEGACY_REGISTRY_ROOT):
+        return False
+    try:
+        if LEGACY_REGISTRY_ROOT.is_symlink():
+            LEGACY_REGISTRY_ROOT.unlink()
+        elif LEGACY_REGISTRY_ROOT.is_dir():
+            shutil.rmtree(LEGACY_REGISTRY_ROOT)
+        else:
+            raise OSError("legacy Registry path is not a directory")
+    except OSError as error:
+        raise ControllerRuntimeError(
+            "legacy_registry_retirement_failed", stage="legacy_registry_retirement"
+        ) from error
+    return True
+
+
+def _is_ops_controller(reference: str) -> bool:
+    """Whether the selected image implements the Ops runtime contract."""
+
+    return (
+        reference == OPS_CONTROLLER_REPOSITORY
+        or reference.startswith(f"{OPS_CONTROLLER_REPOSITORY}:")
+        or reference.startswith(f"{OPS_CONTROLLER_REPOSITORY}@")
+    )
 
 
 @contextmanager
@@ -327,7 +359,7 @@ def _handoff(
             command.extend(["-e", key])
     for key in sorted(explicit):
         command.extend(["-e", f"{key}={environment[key]}"])
-    for source, destination, readonly in (
+    mounts = [
         (Path("/var/lib"), Path("/var/lib"), False),
         (context.services_root, context.services_root, False),
         (Path("/var/log"), Path("/var/log"), False),
@@ -336,7 +368,10 @@ def _handoff(
         (REGISTRY_KNOWN_HOSTS, REGISTRY_KNOWN_HOSTS, True),
         (Path("/var/run/docker.sock"), Path("/var/run/docker.sock"), False),
         (Path("/root/.docker/config.json"), Path("/root/.docker/config.json"), True),
-    ):
+    ]
+    if _is_ops_controller(controller_reference):
+        mounts.append((Path("/opt/infra"), Path("/opt/infra"), False))
+    for source, destination, readonly in mounts:
         mount = f"type=bind,src={source},dst={destination}"
         command.extend(["--mount", f"{mount},readonly" if readonly else mount])
     completed = subprocess.run([*command, controller_digest, "reconcile"], check=False)
@@ -714,6 +749,7 @@ def _inner_reconcile(
         _config_consumers(
             context, revision, "activate", changed_paths, consumer_ids=typed_consumers
         )
+        retired_legacy_registry = _retire_legacy_registry()
     except ControllerRuntimeError:
         raise
     except (
@@ -741,6 +777,11 @@ def _inner_reconcile(
             "category": "service",
             "state": "changed" if service_count else "skipped",
             "count": service_count,
+        },
+        {
+            "category": "legacy_registry",
+            "state": "removed" if retired_legacy_registry else "unchanged",
+            "count": int(retired_legacy_registry),
         },
     ]
     return {

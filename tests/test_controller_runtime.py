@@ -363,14 +363,66 @@ def test_handoff_mounts_host_var_lib_for_runtime_and_textfile_evidence(
         context,
         revision=REVISION,
         controller_digest=DIGEST,
-        controller_reference="ghcr.io/example/infralink-controller:main",
+        controller_reference="ghcr.io/cyberstorm-dev/infralink-ops-controller:main",
     )
 
     assert "type=bind,src=/var/lib,dst=/var/lib" in command
     assert "type=bind,src=/var/lib/infralink,dst=/var/lib/infralink" not in command
+    assert "type=bind,src=/opt/infra,dst=/opt/infra" in command
     assert (
         "type=bind,src=/root/.docker/config.json,dst=/root/.docker/config.json,readonly" in command
     )
+
+
+def test_handoff_does_not_mount_opt_infra_for_a_legacy_controller(
+    tmp_path: Path, monkeypatch
+) -> None:
+    context = controller_runtime.ControllerContext(
+        host_uuid=HOST_ID,
+        registry_remote="ssh://git@example.invalid/infra-registry.git",
+        registry_ref="main",
+        registry_root=tmp_path / "var/lib/infralink/registry",
+        runtime_root=tmp_path / "var/lib/infralink",
+        services_root=tmp_path / "opt/services",
+        registry_key=tmp_path / "etc/infralink/registry-read",
+        registry_known_hosts=tmp_path / "etc/infralink/registry-known_hosts",
+        host_root=tmp_path,
+        textfile_directory=tmp_path / "var/lib/node_exporter/textfile_collector",
+        handoff_digest=None,
+        environment=_environment(),
+    )
+    command: list[str] = []
+    monkeypatch.setattr(
+        controller_runtime.subprocess,
+        "run",
+        lambda argv, **_kwargs: command.extend(argv) or subprocess.CompletedProcess(argv, 0),
+    )
+
+    controller_runtime._handoff(
+        context,
+        revision=REVISION,
+        controller_digest=DIGEST,
+        controller_reference="ghcr.io/relax-dot-gg/infralink-controller:main",
+    )
+
+    assert "type=bind,src=/opt/infra,dst=/opt/infra" not in command
+
+
+def test_retire_legacy_registry_removes_only_the_exact_obsolete_checkout(
+    tmp_path: Path, monkeypatch
+) -> None:
+    legacy = tmp_path / "opt/infra/registry"
+    legacy.mkdir(parents=True)
+    (legacy / ".git").mkdir()
+    (legacy / "stale-state").write_text("obsolete\n", encoding="utf-8")
+    sibling = legacy.parent / "keep"
+    sibling.write_text("current support code\n", encoding="utf-8")
+    monkeypatch.setattr(controller_runtime, "LEGACY_REGISTRY_ROOT", legacy)
+
+    assert controller_runtime._retire_legacy_registry() is True
+    assert not legacy.exists()
+    assert sibling.read_text(encoding="utf-8") == "current support code\n"
+    assert controller_runtime._retire_legacy_registry() is False
 
 
 def test_invalid_rendered_compose_stops_before_firewall_or_service_mutation(
