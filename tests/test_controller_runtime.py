@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from infralink.controller_contracts import ControllerAdapterResult
 
 from infralink_ops import controller_runtime
 
@@ -423,6 +424,33 @@ def test_retire_legacy_registry_removes_only_the_exact_obsolete_checkout(
     assert not legacy.exists()
     assert sibling.read_text(encoding="utf-8") == "current support code\n"
     assert controller_runtime._retire_legacy_registry() is False
+
+
+def test_reconcile_actions_report_legacy_registry_cleanup_as_an_artifact() -> None:
+    actions = controller_runtime._reconcile_actions(
+        changed_paths=["docker-compose.yml"],
+        artifact_paths=["nginx.conf"],
+        service_count=2,
+        retired_legacy_registry=True,
+    )
+
+    validated = ControllerAdapterResult.model_validate(
+        {
+            "schema_version": "infralink.controller-adapter-result/v1",
+            "phase": "apply",
+            "status": "applied",
+            "registry_revision": REVISION,
+            "actions": actions,
+            "evidence": [],
+        }
+    )
+
+    assert [(action.category, action.state, action.count) for action in validated.actions] == [
+        ("render", "changed", 1),
+        ("artifact", "changed", 2),
+        ("firewall", "changed", 1),
+        ("service", "changed", 2),
+    ]
 
 
 def test_invalid_rendered_compose_stops_before_firewall_or_service_mutation(

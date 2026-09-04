@@ -761,29 +761,12 @@ def _inner_reconcile(
     ) as error:
         raise ControllerRuntimeError("controller_reconcile_failed", stage="projection") from error
 
-    actions = [
-        {
-            "category": "render",
-            "state": "changed" if changed_paths else "unchanged",
-            "count": len(changed_paths),
-        },
-        {
-            "category": "artifact",
-            "state": "changed" if artifact_paths else "unchanged",
-            "count": len(artifact_paths),
-        },
-        {"category": "firewall", "state": "changed", "count": 1},
-        {
-            "category": "service",
-            "state": "changed" if service_count else "skipped",
-            "count": service_count,
-        },
-        {
-            "category": "legacy_registry",
-            "state": "removed" if retired_legacy_registry else "unchanged",
-            "count": int(retired_legacy_registry),
-        },
-    ]
+    actions = _reconcile_actions(
+        changed_paths=changed_paths,
+        artifact_paths=artifact_paths,
+        service_count=service_count,
+        retired_legacy_registry=retired_legacy_registry,
+    )
     return {
         "phase": "apply",
         "status": "applied",
@@ -791,6 +774,36 @@ def _inner_reconcile(
         "actions": actions,
         "evidence": [],
     }
+
+
+def _reconcile_actions(
+    *,
+    changed_paths: list[str],
+    artifact_paths: list[str],
+    service_count: int,
+    retired_legacy_registry: bool,
+) -> list[dict[str, Any]]:
+    """Summarize only categories accepted by the public adapter contract."""
+
+    artifact_count = len(artifact_paths) + int(retired_legacy_registry)
+    return [
+        {
+            "category": "render",
+            "state": "changed" if changed_paths else "unchanged",
+            "count": len(changed_paths),
+        },
+        {
+            "category": "artifact",
+            "state": "changed" if artifact_count else "unchanged",
+            "count": artifact_count,
+        },
+        {"category": "firewall", "state": "changed", "count": 1},
+        {
+            "category": "service",
+            "state": "changed" if service_count else "skipped",
+            "count": service_count,
+        },
+    ]
 
 
 def reconcile(context: ControllerContext) -> dict[str, Any]:
