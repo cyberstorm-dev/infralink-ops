@@ -329,7 +329,7 @@ def test_stage_rechecks_the_canonical_timer_after_reloading_units(
         host_interface.stage(host_root)
 
 
-def test_staged_transition_retires_legacy_assets_only_on_a_later_refresh(
+def test_staged_transition_retires_legacy_assets_on_a_later_canonical_stage(
     tmp_path: Path, monkeypatch
 ) -> None:
     import infralink_ops.controller_host_interface as host_interface
@@ -374,7 +374,7 @@ def test_staged_transition_retires_legacy_assets_only_on_a_later_refresh(
     assert legacy_timer_enabled is False
 
     legacy_service_active = False
-    refreshed = host_interface.refresh(host_root)
+    refreshed = host_interface.stage(host_root)
     assert set(refreshed["retired_assets"]) == {"/" + relative for relative in legacy_paths}
     assert not any((host_root / relative).exists() for relative in legacy_paths)
 
