@@ -183,9 +183,11 @@ def _retire_legacy_registry() -> bool:
 def _is_ops_controller(reference: str) -> bool:
     """Whether the selected image implements the Ops runtime contract."""
 
-    return reference == OPS_CONTROLLER_REPOSITORY or reference.startswith(
-        f"{OPS_CONTROLLER_REPOSITORY}:"
-    ) or reference.startswith(f"{OPS_CONTROLLER_REPOSITORY}@")
+    return (
+        reference == OPS_CONTROLLER_REPOSITORY
+        or reference.startswith(f"{OPS_CONTROLLER_REPOSITORY}:")
+        or reference.startswith(f"{OPS_CONTROLLER_REPOSITORY}@")
+    )
 
 
 @contextmanager
