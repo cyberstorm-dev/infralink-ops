@@ -4,6 +4,8 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
+
 SYSTEMD_RELOAD = [
     "nsenter",
     "--target",
@@ -233,6 +235,148 @@ def test_refresh_retires_inactive_legacy_v2_reconcile_assets(tmp_path: Path, mon
         ]
     ]
     assert calls[-1] == SYSTEMD_RELOAD
+
+
+def test_stage_disables_legacy_timer_without_retiring_its_active_parent_assets(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import infralink_ops.controller_host_interface as host_interface
+
+    host_root = tmp_path / "host"
+    host_root.mkdir()
+    legacy_paths = (
+        "usr/local/sbin/self-deploy-v2-reconcile",
+        "etc/systemd/system/self-deploy-v2-reconcile.service",
+        "etc/systemd/system/self-deploy-v2-reconcile.timer",
+    )
+    for relative in legacy_paths:
+        destination = host_root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text("legacy\n", encoding="utf-8")
+
+    legacy_timer_enabled = True
+
+    def systemd(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal legacy_timer_enabled
+        unit = command[-1]
+        if command[-4:] == ["systemctl", "disable", "--now", "self-deploy-v2-reconcile.timer"]:
+            legacy_timer_enabled = False
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if unit == "self-deploy-v2-reconcile.service" and "is-active" in command:
+            return subprocess.CompletedProcess(command, 0, "active\n", "")
+        if unit == "self-deploy-v2-reconcile.timer" and (
+            "is-active" in command or "is-enabled" in command
+        ):
+            return subprocess.CompletedProcess(command, 0 if legacy_timer_enabled else 3, "", "")
+        if unit == "infralink-host-reconcile.timer" and (
+            "is-active" in command or "is-enabled" in command
+        ):
+            return subprocess.CompletedProcess(command, 0, "active\n", "")
+        return inactive_legacy_systemd(command)
+
+    monkeypatch.setattr(host_interface.subprocess, "run", systemd)
+    result = host_interface.stage(host_root)
+
+    assert result["changed"] is True
+    assert result["retired_assets"] == []
+    assert all((host_root / relative).is_file() for relative in legacy_paths)
+    assert (host_root / "usr/local/bin/infralink").is_file()
+    assert legacy_timer_enabled is False
+
+
+def test_stage_requires_an_active_enabled_canonical_timer_before_writing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import infralink_ops.controller_host_interface as host_interface
+
+    host_root = tmp_path / "host"
+    host_root.mkdir()
+    monkeypatch.setattr(host_interface.subprocess, "run", inactive_legacy_systemd)
+
+    with pytest.raises(
+        host_interface.HostInterfaceError, match="canonical_reconcile_timer_required"
+    ):
+        host_interface.stage(host_root)
+
+    assert not (host_root / "usr/local/bin/infralink").exists()
+
+
+def test_stage_rechecks_the_canonical_timer_after_reloading_units(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import infralink_ops.controller_host_interface as host_interface
+
+    host_root = tmp_path / "host"
+    host_root.mkdir()
+    reloaded = False
+
+    def systemd(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal reloaded
+        if command == SYSTEMD_RELOAD:
+            reloaded = True
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if command[-1] == "infralink-host-reconcile.timer" and (
+            "is-active" in command or "is-enabled" in command
+        ):
+            return subprocess.CompletedProcess(command, 0 if not reloaded else 3, "", "")
+        return inactive_legacy_systemd(command)
+
+    monkeypatch.setattr(host_interface.subprocess, "run", systemd)
+
+    with pytest.raises(
+        host_interface.HostInterfaceError, match="canonical_reconcile_timer_required"
+    ):
+        host_interface.stage(host_root)
+
+
+def test_staged_transition_retires_legacy_assets_only_on_a_later_refresh(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import infralink_ops.controller_host_interface as host_interface
+
+    host_root = tmp_path / "host"
+    host_root.mkdir()
+    legacy_paths = (
+        "usr/local/sbin/self-deploy-v2-reconcile",
+        "etc/systemd/system/self-deploy-v2-reconcile.service",
+        "etc/systemd/system/self-deploy-v2-reconcile.timer",
+    )
+    for relative in legacy_paths:
+        destination = host_root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text("legacy\n", encoding="utf-8")
+
+    legacy_service_active = True
+    legacy_timer_enabled = True
+
+    def systemd(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal legacy_service_active, legacy_timer_enabled
+        unit = command[-1]
+        if command[-4:] == ["systemctl", "disable", "--now", "self-deploy-v2-reconcile.timer"]:
+            legacy_timer_enabled = False
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if unit == "infralink-host-reconcile.timer" and (
+            "is-active" in command or "is-enabled" in command
+        ):
+            return subprocess.CompletedProcess(command, 0, "active\n", "")
+        if unit == "self-deploy-v2-reconcile.service" and "is-active" in command:
+            return subprocess.CompletedProcess(command, 0 if legacy_service_active else 3, "", "")
+        if unit == "self-deploy-v2-reconcile.timer" and (
+            "is-active" in command or "is-enabled" in command
+        ):
+            return subprocess.CompletedProcess(command, 0 if legacy_timer_enabled else 3, "", "")
+        return inactive_legacy_systemd(command)
+
+    monkeypatch.setattr(host_interface.subprocess, "run", systemd)
+    staged = host_interface.stage(host_root)
+    assert staged["retired_assets"] == []
+    assert all((host_root / relative).exists() for relative in legacy_paths)
+    assert legacy_timer_enabled is False
+
+    legacy_service_active = False
+    refreshed = host_interface.refresh(host_root)
+    assert set(refreshed["retired_assets"]) == {"/" + relative for relative in legacy_paths}
+    assert not any((host_root / relative).exists() for relative in legacy_paths)
 
 
 def test_refresh_refuses_to_retire_an_active_legacy_v2_reconcile_timer(
