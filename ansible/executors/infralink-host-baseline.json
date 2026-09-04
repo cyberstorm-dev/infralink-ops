@@ -1,0 +1,13 @@
+{
+  "schema_version": "infralink.host-bootstrap-executor/v1",
+  "id": "infra-management-host-baseline",
+  "playbook": "ansible/playbooks/infralink_host_baseline.yml",
+  "allowed_actions": [
+    "install_git",
+    "install_docker",
+    "install_jq",
+    "install_bws_cli",
+    "install_self_deploy_dependencies",
+    "bootstrap_infralink_controller"
+  ]
+}

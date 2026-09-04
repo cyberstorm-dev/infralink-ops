@@ -19,6 +19,7 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
         lsb-release \
         nftables \
         openssh-client \
+        ansible-core \
         unzip \
         util-linux \
         yq \
@@ -50,6 +51,7 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY src ./src
+COPY ansible ./ansible
 # Resolve the published Infralink dependency declared in pyproject.toml. The
 # controller exposes no public Ops console scripts; its private runtime is the
 # image entrypoint and public operator calls use ``infralink``.

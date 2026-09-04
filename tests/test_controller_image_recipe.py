@@ -11,7 +11,8 @@ def test_controller_image_is_a_public_ops_runtime() -> None:
     assert "python -m pip install --disable-pip-version-check --no-cache-dir ." in recipe
     assert "command -v infralink-controller-" not in recipe
     assert 'ENTRYPOINT ["python", "-m", "infralink_ops.controller_runtime"]' in recipe
-    for private_tree in ("COPY ansible", "COPY lib", "COPY monitoring", "COPY scripts"):
+    assert "COPY ansible ./ansible" in recipe
+    for private_tree in ("COPY lib", "COPY monitoring", "COPY scripts"):
         assert private_tree not in recipe
 
 
