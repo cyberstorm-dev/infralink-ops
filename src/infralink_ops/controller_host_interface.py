@@ -60,6 +60,16 @@ SYSTEMD_UNIT_ASSET_NAMES = frozenset(
     {"infralink-host-reconcile.service", "infralink-host-reconcile.timer"}
 )
 RETIRED_DESTINATIONS = ("/usr/local/sbin/infralink-host",)
+LEGACY_V2_RECONCILE_DESTINATIONS = (
+    "/etc/systemd/system/self-deploy-v2-reconcile.service",
+    "/etc/systemd/system/self-deploy-v2-reconcile.service.d/environment.conf",
+    "/etc/systemd/system/self-deploy-v2-reconcile.timer",
+    "/usr/local/sbin/self-deploy-v2-reconcile",
+)
+LEGACY_V2_RECONCILE_UNITS = (
+    "self-deploy-v2-reconcile.service",
+    "self-deploy-v2-reconcile.timer",
+)
 
 
 def _payload(
@@ -122,11 +132,64 @@ def _snapshot(destination: Path) -> tuple[bytes, int] | None:
 def _retired_destinations(host_root: Path) -> tuple[Path, ...]:
     """Validate former public paths before the replacement unit takes effect."""
 
-    destinations = tuple(host_root / path.removeprefix("/") for path in RETIRED_DESTINATIONS)
+    destinations = tuple(
+        host_root / path.removeprefix("/")
+        for path in (*RETIRED_DESTINATIONS, *LEGACY_V2_RECONCILE_DESTINATIONS)
+    )
     for destination in destinations:
         _ensure_safe_parent(destination, host_root=host_root, create=False)
         _snapshot(destination)
     return destinations
+
+
+def _legacy_v2_reconcile_is_inactive() -> None:
+    """Refuse to replace a deployment path that could still apply state."""
+
+    for unit in LEGACY_V2_RECONCILE_UNITS:
+        if _systemd_unit_is_active(unit):
+            raise HostInterfaceError("legacy_reconcile_active")
+    if _systemd_unit_is_enabled("self-deploy-v2-reconcile.timer"):
+        raise HostInterfaceError("legacy_reconcile_active")
+
+
+def _systemd_unit_is_active(unit: str) -> bool:
+    """Read a unit's active state from the host namespace."""
+
+    return _systemd_unit_has_state("is-active", unit, inactive_codes=(3, 4))
+
+
+def _systemd_unit_is_enabled(unit: str) -> bool:
+    """Read a unit's enabled state from the host namespace."""
+
+    return _systemd_unit_has_state("is-enabled", unit, inactive_codes=(1, 3, 4))
+
+
+def _systemd_unit_has_state(action: str, unit: str, *, inactive_codes: tuple[int, ...]) -> bool:
+    try:
+        result = subprocess.run(
+            [
+                "nsenter",
+                "--target",
+                "1",
+                "--mount",
+                "--pid",
+                "--",
+                "systemctl",
+                action,
+                "--quiet",
+                unit,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as error:
+        raise HostInterfaceError("legacy_reconcile_state_unavailable") from error
+    if result.returncode == 0:
+        return True
+    if result.returncode in inactive_codes:
+        return False
+    raise HostInterfaceError("legacy_reconcile_state_unavailable")
 
 
 def _write_atomically(destination: Path, *, contents: bytes, mode: int) -> None:
@@ -163,6 +226,10 @@ def refresh(host_root: Path) -> dict[str, object]:
     sources: list[tuple[HostInterfaceAsset, Path, bytes]] = []
     unit_snapshots: dict[Path, tuple[bytes, int] | None] = {}
     retired_destinations = _retired_destinations(host_root)
+    _legacy_v2_reconcile_is_inactive()
+    retired_snapshots = {
+        destination: _snapshot(destination) for destination in retired_destinations
+    }
     for asset in ASSETS:
         destination = _destination(host_root, asset)
         _ensure_safe_parent(destination, host_root=host_root, create=False)
@@ -182,13 +249,29 @@ def refresh(host_root: Path) -> dict[str, object]:
             _write_atomically(destination, contents=contents, mode=asset.mode)
             changed_assets.add(asset.source_name)
 
+    retired_assets: list[str] = []
+    retired_systemd_destinations: list[Path] = []
+    try:
+        for destination in retired_destinations:
+            if retired_snapshots[destination] is None:
+                continue
+            destination.unlink()
+            retired_assets.append("/" + str(destination.relative_to(host_root)))
+            if destination.is_relative_to(host_root / "etc/systemd/system"):
+                retired_systemd_destinations.append(destination)
+    except OSError as error:
+        for retired_destination in reversed(retired_destinations):
+            if retired_destination in retired_snapshots:
+                _restore_unit(retired_destination, retired_snapshots[retired_destination])
+        raise HostInterfaceError("host_interface_retire_failed") from error
+
     systemd_reloaded = False
     changed_unit_destinations = [
         destination
         for asset, destination, _contents in sources
         if asset.source_name in SYSTEMD_UNIT_ASSET_NAMES and asset.source_name in changed_assets
     ]
-    if changed_unit_destinations:
+    if changed_unit_destinations or retired_systemd_destinations:
         try:
             subprocess.run(
                 [
@@ -206,16 +289,13 @@ def refresh(host_root: Path) -> dict[str, object]:
         except (OSError, subprocess.CalledProcessError) as error:
             for destination in changed_unit_destinations:
                 _restore_unit(destination, unit_snapshots[destination])
+            for destination in retired_systemd_destinations:
+                _restore_unit(destination, retired_snapshots[destination])
+            for destination in retired_destinations:
+                if destination not in retired_systemd_destinations:
+                    _restore_unit(destination, retired_snapshots[destination])
             raise HostInterfaceError("host_interface_systemd_reload_failed") from error
         systemd_reloaded = True
-    retired_assets: list[str] = []
-    for destination in retired_destinations:
-        if destination.exists() or destination.is_symlink():
-            try:
-                destination.unlink()
-            except OSError as error:
-                raise HostInterfaceError("host_interface_retire_failed") from error
-            retired_assets.append("/" + str(destination.relative_to(host_root)))
     return {
         "changed": bool(changed_assets or retired_assets),
         "systemd_reloaded": systemd_reloaded,
