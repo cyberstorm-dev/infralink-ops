@@ -1,0 +1,8 @@
+---
+- name: Apply the Infralink host baseline
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Apply selected host baseline actions
+      ansible.builtin.include_tasks: ../tasks/infralink_host_baseline.yml

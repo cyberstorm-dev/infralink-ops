@@ -1,0 +1,143 @@
+---
+- name: Validate narrow baseline inputs
+  ansible.builtin.assert:
+    that:
+      - host_uuid is match('^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+      - canonical_name | length > 0
+      - bootstrap_actions | difference(infralink_baseline_allowed_actions) | length == 0
+    fail_msg: Infralink host baseline received an unsupported action or identity.
+  vars:
+    infralink_baseline_allowed_actions:
+      - install_git
+      - install_docker
+      - install_jq
+      - install_bws_cli
+      - install_self_deploy_dependencies
+      - bootstrap_infralink_controller
+
+- name: Install Git
+  ansible.builtin.apt:
+    name: git
+    state: present
+    update_cache: true
+  when: "'install_git' in bootstrap_actions"
+
+- name: Install Docker prerequisites
+  ansible.builtin.apt:
+    name: [ca-certificates, curl, gnupg]
+    state: present
+    update_cache: true
+  when: "'install_docker' in bootstrap_actions"
+
+- name: Install Docker engine and Compose plugin
+  ansible.builtin.apt:
+    name: [docker.io, docker-compose-v2]
+    state: present
+  when: "'install_docker' in bootstrap_actions"
+
+- name: Enable Docker
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+  when: "'install_docker' in bootstrap_actions"
+
+- name: Install jq
+  ansible.builtin.apt:
+    name: jq
+    state: present
+    update_cache: true
+  when: "'install_jq' in bootstrap_actions"
+
+- name: Install BWS archive prerequisite
+  ansible.builtin.apt:
+    name: unzip
+    state: present
+    update_cache: true
+  when: "'install_bws_cli' in bootstrap_actions"
+
+- name: Install self-deploy Python dependencies
+  ansible.builtin.apt:
+    name: [python3-yaml, python3-jinja2]
+    state: present
+    update_cache: true
+  when: "'install_self_deploy_dependencies' in bootstrap_actions"
+
+- name: Install BWS CLI
+  ansible.builtin.unarchive:
+    src: https://github.com/bitwarden/sdk-sm/releases/download/bws-v1.0.0/bws-x86_64-unknown-linux-gnu-1.0.0.zip
+    dest: /usr/local/bin
+    remote_src: true
+    mode: '0755'
+  when: "'install_bws_cli' in bootstrap_actions"
+
+- name: Validate controller bootstrap inputs
+  ansible.builtin.assert:
+    that:
+      - controller_image | default('') | length > 0
+      - registry_read_identity_secret_uuid | default('') is match('^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+      - ghcr_username_secret_project | default('') | length > 0
+      - ghcr_username_secret_uuid | default('') is match('^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+      - ghcr_token_secret_project | default('') | length > 0
+      - ghcr_token_secret_uuid | default('') is match('^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+      - registry_repo_url | default('') | length > 0
+      - registry_ref | default('') | length > 0
+      - registry_known_hosts | default('') | length > 0
+      - lookup('env', 'BWS_ACCESS_TOKEN') | length > 0
+    fail_msg: Controller bootstrap requires declared controller, registry, and local BWS inputs.
+  no_log: true
+  when: "'bootstrap_infralink_controller' in bootstrap_actions"
+
+- name: Authenticate Docker to GHCR for controller bootstrap
+  ansible.builtin.shell: |
+    set -euo pipefail
+    install -d -m 0700 /root/.docker
+    ghcr_username="$(/usr/local/bin/bws secret get '{{ ghcr_username_secret_uuid }}' --output json | /usr/bin/jq -er '.value')"
+    ghcr_token="$(/usr/local/bin/bws secret get '{{ ghcr_token_secret_uuid }}' --output json | /usr/bin/jq -er '.value')"
+    printf '%s\n' "$ghcr_token" | /usr/bin/docker login ghcr.io --username "$ghcr_username" --password-stdin
+    test -f /root/.docker/config.json
+    chmod 0600 /root/.docker/config.json
+    unset ghcr_username ghcr_token
+  args:
+    executable: /bin/bash
+  environment:
+    BWS_ACCESS_TOKEN: "{{ lookup('env', 'BWS_ACCESS_TOKEN') }}"
+  no_log: true
+  when: "'bootstrap_infralink_controller' in bootstrap_actions"
+
+- name: Bootstrap the controller-owned host runtime
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - run
+      - --rm
+      - --pull
+      - always
+      - --privileged
+      - --pid=host
+      - -e
+      - INFRALINK_BOOTSTRAP_APPLY=1
+      - -e
+      - INFRALINK_HOST_ROOT=/host
+      - -e
+      - INFRALINK_HOST_UUID={{ host_uuid }}
+      - -e
+      - INFRALINK_CONTROLLER_IMAGE={{ controller_image }}
+      - -e
+      - INFRALINK_REGISTRY_DEPLOY_KEY_SECRET_ID={{ registry_read_identity_secret_uuid }}
+      - -e
+      - INFRALINK_REGISTRY_REPO_URL={{ registry_repo_url }}
+      - -e
+      - INFRALINK_REGISTRY_REF={{ registry_ref }}
+      - -e
+      - INFRALINK_REGISTRY_KNOWN_HOSTS={{ registry_known_hosts }}
+      - -e
+      - BWS_ACCESS_TOKEN
+      - --mount
+      - type=bind,src=/,dst=/host
+      - "{{ controller_image }}"
+      - bootstrap
+  environment:
+    BWS_ACCESS_TOKEN: "{{ lookup('env', 'BWS_ACCESS_TOKEN') }}"
+  no_log: true
+  when: "'bootstrap_infralink_controller' in bootstrap_actions"
