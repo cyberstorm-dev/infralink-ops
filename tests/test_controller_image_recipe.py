@@ -26,9 +26,9 @@ def test_controller_image_requires_the_current_typed_infralink_surface() -> None
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     recipe = Path("Dockerfile.controller").read_text(encoding="utf-8")
 
-    assert "infralink>=0.6.25,<0.7" in project["project"]["dependencies"]
+    assert "infralink>=0.6.26,<0.7" in project["project"]["dependencies"]
     assert "agent-surface>=0.2.3,<0.3" in project["build-system"]["requires"]
-    assert "infralink runtime is older than 0.6.25" in recipe
+    assert "infralink runtime is older than 0.6.26" in recipe
 
 
 def test_ops_has_no_public_console_entrypoints() -> None:
