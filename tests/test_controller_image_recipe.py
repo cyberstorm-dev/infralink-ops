@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import tomllib
+
 
 def test_controller_image_is_a_public_ops_runtime() -> None:
     recipe = Path("Dockerfile.controller").read_text(encoding="utf-8")
@@ -17,6 +19,15 @@ def test_controller_image_installs_iproute2_for_firewall_network_inventory() -> 
     recipe = Path("Dockerfile.controller").read_text(encoding="utf-8")
 
     assert "iproute2" in recipe
+
+
+def test_controller_image_requires_the_current_typed_infralink_surface() -> None:
+    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    recipe = Path("Dockerfile.controller").read_text(encoding="utf-8")
+
+    assert "infralink>=0.6.25,<0.7" in project["project"]["dependencies"]
+    assert "agent-surface>=0.2.3,<0.3" in project["build-system"]["requires"]
+    assert "infralink runtime is older than 0.6.25" in recipe
 
 
 def test_ops_has_no_public_console_entrypoints() -> None:

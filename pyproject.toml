@@ -1,15 +1,15 @@
 [build-system]
-requires = ["hatchling>=1.25", "agent-surface==0.1.7"]
+requires = ["hatchling>=1.25", "agent-surface>=0.2.3,<0.3"]
 build-backend = "hatchling.build"
 
 [project]
 name = "infralink-ops"
-version = "0.2.89"
+version = "0.2.90"
 description = "Operational runtime for direct Infralink registry projections"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "infralink>=0.6.22,<0.7",
+  "infralink>=0.6.25,<0.7",
   "Jinja2>=3.0",
   "PyYAML>=6.0",
 ]

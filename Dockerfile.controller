@@ -53,6 +53,7 @@ COPY src ./src
 # Resolve the published Infralink dependency declared in pyproject.toml. The
 # controller exposes no public Ops console scripts; its private runtime is the
 # image entrypoint and public operator calls use ``infralink``.
-RUN python -m pip install --disable-pip-version-check --no-cache-dir .
+RUN python -m pip install --disable-pip-version-check --no-cache-dir . \
+    && python -c 'from infralink import __version__; assert tuple(map(int, __version__.split("."))) >= (0, 6, 25), "infralink runtime is older than 0.6.25"'
 
 ENTRYPOINT ["python", "-m", "infralink_ops.controller_runtime"]

@@ -103,7 +103,7 @@ Run the same checks Woodpecker runs:
 
 ```bash
 python -m pip install --disable-pip-version-check \
-  'infralink>=0.6.22,<0.7'
+  'infralink>=0.6.25,<0.7'
 python -m pip install --disable-pip-version-check -e '.[dev]'
 python -m ruff check src tests
 python -m ruff format --check src tests
