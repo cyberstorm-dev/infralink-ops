@@ -7,9 +7,22 @@ import pytest
 from infralink_ops.controller_render_secrets import (
     RenderSecretsError,
     resolve,
+    safe_diagnostic_code,
 )
 
 HOST_ID = "11111111-1111-4111-8111-111111111111"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("render_secrets_invalid", "render_secrets_invalid"),
+        ("project_unavailable:private-alias", "render_secrets_project_unavailable"),
+        ("required_secret_missing", "render_secrets_required_secret_missing"),
+    ],
+)
+def test_safe_diagnostic_code_never_exposes_resolver_detail(source: str, expected: str) -> None:
+    assert safe_diagnostic_code(RenderSecretsError(source)) == expected
 
 
 def _registry(tmp_path: Path, *, required: bool = True) -> tuple[Path, str]:
