@@ -374,6 +374,82 @@ def test_inner_reconcile_uses_one_handoff_revision_and_publishes_success(
     assert published == [(REVISION, DIGEST, {"status": "ok"})]
 
 
+def test_seed_handoff_stages_the_host_interface_before_any_apply(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    host_root = tmp_path / "host-interface"
+    host_root.mkdir()
+    monkeypatch.setattr(controller_runtime, "RUNTIME_ROOT", runtime)
+    monkeypatch.setattr(controller_runtime, "REGISTRY_ROOT", tmp_path / "registry")
+    monkeypatch.setattr(controller_runtime, "SERVICES_ROOT", tmp_path / "services")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        controller_runtime.controller_host_interface,
+        "stage",
+        lambda root: calls.append(f"stage:{root}"),
+    )
+    monkeypatch.setattr(
+        controller_runtime,
+        "_inner_reconcile",
+        lambda _context, revision, _digest: (
+            calls.append("apply")
+            or {
+                "phase": "apply",
+                "status": "applied",
+                "registry_revision": revision,
+                "actions": [],
+                "evidence": [],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        controller_runtime.controller_images, "prune_unused_images", lambda _: ({"status": "ok"}, 0)
+    )
+    monkeypatch.setattr(controller_runtime, "_publish_success", lambda *_args, **_kwargs: None)
+
+    payload, status = controller_runtime.main(
+        ["reconcile"],
+        environ={**_environment(handoff=True), "INFRALINK_HOST_ROOT": str(host_root)},
+    )
+
+    assert status == 0
+    assert payload["result"]["registry_revision"] == REVISION
+    assert calls == [f"stage:{host_root}", "apply"]
+
+
+def test_seed_handoff_stage_failure_stops_before_any_apply(tmp_path: Path, monkeypatch) -> None:
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    host_root = tmp_path / "host-interface"
+    host_root.mkdir()
+    monkeypatch.setattr(controller_runtime, "RUNTIME_ROOT", runtime)
+    monkeypatch.setattr(controller_runtime, "REGISTRY_ROOT", tmp_path / "registry")
+    monkeypatch.setattr(controller_runtime, "SERVICES_ROOT", tmp_path / "services")
+    applied: list[object] = []
+    monkeypatch.setattr(
+        controller_runtime.controller_host_interface,
+        "stage",
+        lambda _root: (_ for _ in ()).throw(
+            controller_runtime.controller_host_interface.HostInterfaceError(
+                "legacy_reconcile_timer_disable_failed"
+            )
+        ),
+    )
+    monkeypatch.setattr(controller_runtime, "_inner_reconcile", lambda *_args: applied.append(True))
+    monkeypatch.setattr(controller_runtime, "_publish_failure", lambda *_args: None)
+
+    payload, status = controller_runtime.main(
+        ["reconcile"],
+        environ={**_environment(handoff=True), "INFRALINK_HOST_ROOT": str(host_root)},
+    )
+
+    assert status == 78
+    assert payload["error"] == {"code": "host_interface_stage_failed"}
+    assert applied == []
+
+
 def test_invalid_handoff_fails_before_any_apply_stage(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(controller_runtime, "RUNTIME_ROOT", tmp_path)
     applied: list[object] = []
@@ -455,11 +531,6 @@ def test_outer_reconcile_fetches_one_revision_then_handoffs_that_exact_image(
         lambda context: calls.append(("runtime_directories", context.registry_root)),
     )
     monkeypatch.setattr(
-        controller_runtime.controller_host_interface,
-        "refresh",
-        lambda root: calls.append(("host_interface", root)),
-    )
-    monkeypatch.setattr(
         controller_runtime,
         "resolve_controller_reference",
         lambda root, host_id, *, expected_revision: (
@@ -491,7 +562,6 @@ def test_outer_reconcile_fetches_one_revision_then_handoffs_that_exact_image(
     assert [name for name, _ in calls] == [
         "fetch",
         "runtime_directories",
-        "host_interface",
         "controller_reference",
         "controller_digest",
         "handoff",
@@ -619,6 +689,10 @@ def test_handoff_mounts_host_var_lib_for_runtime_and_textfile_evidence(
     assert "type=bind,src=/var/lib,dst=/var/lib" in command
     assert "type=bind,src=/var/lib/infralink,dst=/var/lib/infralink" not in command
     assert "type=bind,src=/opt/infra,dst=/opt/infra" in command
+    assert "INFRALINK_HOST_ROOT=/infralink-host-interface" in command
+    assert "type=bind,src=/usr/local,dst=/infralink-host-interface/usr/local" in command
+    assert "type=bind,src=/usr/libexec,dst=/infralink-host-interface/usr/libexec" in command
+    assert "type=bind,src=/etc/systemd,dst=/infralink-host-interface/etc/systemd" in command
     assert (
         "type=bind,src=/root/.docker/config.json,dst=/root/.docker/config.json,readonly" in command
     )
@@ -656,6 +730,8 @@ def test_handoff_does_not_mount_opt_infra_for_a_legacy_controller(
     )
 
     assert "type=bind,src=/opt/infra,dst=/opt/infra" not in command
+    assert "INFRALINK_HOST_ROOT=/infralink-host-interface" not in command
+    assert "type=bind,src=/usr/local,dst=/infralink-host-interface/usr/local" not in command
 
 
 def test_retire_legacy_registry_removes_only_the_exact_obsolete_checkout(

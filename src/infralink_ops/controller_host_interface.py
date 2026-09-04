@@ -152,6 +152,37 @@ def _legacy_v2_reconcile_is_inactive() -> None:
         raise HostInterfaceError("legacy_reconcile_active")
 
 
+def _canonical_reconcile_timer_is_ready() -> bool:
+    """Whether a staged interface has a future canonical reconciliation path."""
+
+    return _systemd_unit_is_active("infralink-host-reconcile.timer") and _systemd_unit_is_enabled(
+        "infralink-host-reconcile.timer"
+    )
+
+
+def _disable_legacy_v2_reconcile_timer() -> None:
+    """Stop future legacy reconciles without interrupting the parent service."""
+
+    try:
+        subprocess.run(
+            [
+                "nsenter",
+                "--target",
+                "1",
+                "--mount",
+                "--pid",
+                "--",
+                "systemctl",
+                "disable",
+                "--now",
+                "self-deploy-v2-reconcile.timer",
+            ],
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise HostInterfaceError("legacy_reconcile_timer_disable_failed") from error
+
+
 def _systemd_unit_is_active(unit: str) -> bool:
     """Read a unit's active state from the host namespace."""
 
@@ -220,13 +251,18 @@ def _restore_unit(destination: Path, snapshot: tuple[bytes, int] | None) -> None
         raise HostInterfaceError("host_interface_refresh_failed") from error
 
 
-def refresh(host_root: Path) -> dict[str, object]:
+def refresh(
+    host_root: Path, *, retire_legacy: bool = True, require_canonical_timer: bool = False
+) -> dict[str, object]:
     """Atomically materialize the exact packaged launcher and systemd units."""
 
     sources: list[tuple[HostInterfaceAsset, Path, bytes]] = []
     unit_snapshots: dict[Path, tuple[bytes, int] | None] = {}
-    retired_destinations = _retired_destinations(host_root)
-    _legacy_v2_reconcile_is_inactive()
+    if require_canonical_timer and not _canonical_reconcile_timer_is_ready():
+        raise HostInterfaceError("canonical_reconcile_timer_required")
+    retired_destinations = _retired_destinations(host_root) if retire_legacy else ()
+    if retire_legacy:
+        _legacy_v2_reconcile_is_inactive()
     retired_snapshots = {
         destination: _snapshot(destination) for destination in retired_destinations
     }
@@ -302,6 +338,20 @@ def refresh(host_root: Path) -> dict[str, object]:
         "retired_assets": retired_assets,
         "assets": [asset.document() for asset in ASSETS],
     }
+
+
+def stage(host_root: Path) -> dict[str, object]:
+    """Install the canonical interface without retiring the active seed path.
+
+    The seed-to-selected-controller handoff uses this exactly once.  A later
+    canonical timer reconcile calls ``refresh`` and performs guarded retirement.
+    """
+
+    result = refresh(host_root, retire_legacy=False, require_canonical_timer=True)
+    if not _canonical_reconcile_timer_is_ready():
+        raise HostInterfaceError("canonical_reconcile_timer_required")
+    _disable_legacy_v2_reconcile_timer()
+    return result
 
 
 def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:

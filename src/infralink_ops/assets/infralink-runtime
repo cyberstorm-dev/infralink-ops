@@ -30,13 +30,6 @@ normal_mounts=(
     --mount type=bind,src=/etc/infralink/registry-read,dst=/etc/infralink/registry-read,readonly
 )
 
-host_interface_mounts=(
-    --mount type=bind,src=/usr/local/bin,dst=/infralink-host-interface/usr/local/bin
-    --mount type=bind,src=/usr/local/sbin,dst=/infralink-host-interface/usr/local/sbin
-    --mount type=bind,src=/usr/libexec/infralink,dst=/infralink-host-interface/usr/libexec/infralink
-    --mount type=bind,src=/etc/systemd/system,dst=/infralink-host-interface/etc/systemd/system
-)
-
 controller_env=(
     -e INFRALINK_HOST_UUID
     -e BWS_ACCESS_TOKEN
@@ -55,6 +48,4 @@ exec docker run --rm --pull always \
     --network=host \
     "${controller_env[@]}" \
     "${normal_mounts[@]}" \
-    -e INFRALINK_HOST_ROOT=/infralink-host-interface \
-    "${host_interface_mounts[@]}" \
     "$bootstrap_image" reconcile

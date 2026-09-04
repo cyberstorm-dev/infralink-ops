@@ -366,6 +366,9 @@ def _handoff(
         "INFRALINK_CONTROLLER_HANDOFF_REGISTRY_REVISION",
         "INFRALINK_CONTROLLER_HANDOFF_REFERENCE",
     }
+    if _is_ops_controller(controller_reference):
+        explicit.add("INFRALINK_HOST_ROOT")
+        environment["INFRALINK_HOST_ROOT"] = "/infralink-host-interface"
     for key in sorted(inherited):
         if environment.get(key):
             command.extend(["-e", key])
@@ -383,6 +386,13 @@ def _handoff(
     ]
     if _is_ops_controller(controller_reference):
         mounts.append((Path("/opt/infra"), Path("/opt/infra"), False))
+        mounts.extend(
+            (
+                (Path("/usr/local"), Path("/infralink-host-interface/usr/local"), False),
+                (Path("/usr/libexec"), Path("/infralink-host-interface/usr/libexec"), False),
+                (Path("/etc/systemd"), Path("/infralink-host-interface/etc/systemd"), False),
+            )
+        )
     for source, destination, readonly in mounts:
         mount = f"type=bind,src={source},dst={destination}"
         command.extend(["--mount", f"{mount},readonly" if readonly else mount])
@@ -962,12 +972,6 @@ def reconcile(context: ControllerContext) -> dict[str, Any]:
                     known_hosts_file=context.registry_known_hosts,
                 )
                 _runtime_directories(context)
-                try:
-                    controller_host_interface.refresh(context.host_root)
-                except controller_host_interface.HostInterfaceError as error:
-                    raise ControllerRuntimeError(
-                        "host_interface_refresh_failed", stage="host_interface"
-                    ) from error
                 reference = resolve_controller_reference(
                     checkout.root, context.host_uuid, expected_revision=checkout.revision
                 )
@@ -985,6 +989,13 @@ def reconcile(context: ControllerContext) -> dict[str, Any]:
         ):
             raise ControllerRuntimeError("controller_handoff_invalid")
         with _reconcile_lock(context):
+            if context.host_root != Path("/"):
+                try:
+                    controller_host_interface.stage(context.host_root)
+                except controller_host_interface.HostInterfaceError as error:
+                    raise ControllerRuntimeError(
+                        "host_interface_stage_failed", stage="host_interface"
+                    ) from error
             result = _inner_reconcile(context, revision, context.handoff_digest)
             cleanup, cleanup_status = controller_images.prune_unused_images("docker")
             if cleanup_status:

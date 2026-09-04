@@ -32,16 +32,8 @@ def test_host_interface_assets_are_packaged_with_canonical_runtime_contract() ->
     assert "src=/root/.docker/config.json,dst=/root/.docker/config.json,readonly" in runtime_source
     assert "reconcile" in runtime_source
     assert "Usage:" not in runtime_source
-    assert "-e INFRALINK_HOST_ROOT=/infralink-host-interface" in runtime_source
-    assert "src=/usr/local/bin,dst=/infralink-host-interface/usr/local/bin" in runtime_source
-    assert "src=/usr/local/sbin,dst=/infralink-host-interface/usr/local/sbin" in runtime_source
-    assert (
-        "src=/usr/libexec/infralink,dst=/infralink-host-interface/usr/libexec/infralink"
-        in runtime_source
-    )
-    assert (
-        "src=/etc/systemd/system,dst=/infralink-host-interface/etc/systemd/system" in runtime_source
-    )
+    assert "INFRALINK_HOST_ROOT" not in runtime_source
+    assert "infralink-host-interface" not in runtime_source
     assert "Usage: infralink-host" not in runtime_source
     assert service.read_text(encoding="utf-8") == (
         "[Unit]\n"
