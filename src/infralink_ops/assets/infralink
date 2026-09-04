@@ -40,13 +40,16 @@ source "$HOST_ENV_FILE"
 set +a
 
 # Public operator calls use the same non-authoritative transport image as the
-# timer. It reads the configured Registry checkout for every operation.
+# timer. It reads the current clean reconciled Registry cache, then hands off
+# to that revision's exact selected controller image before invoking its public CLI.
 bootstrap_image='ghcr.io/cyberstorm-dev/infralink-ops-controller:main'
 
 operator_mounts=(
     --mount type=bind,src=/var/lib/infralink/registry,dst=/var/lib/infralink/registry,readonly
     --mount type=bind,src=/var/lib/infralink,dst=/var/lib/infralink
     --mount type=bind,src=/var/log/infralink,dst=/var/log/infralink
+    --mount type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock
+    --mount type=bind,src=/root/.docker/config.json,dst=/root/.docker/config.json,readonly
 )
 if [[ -d /root/.ssh ]]; then
     operator_mounts+=(--mount type=bind,src=/root/.ssh,dst=/root/.ssh,readonly)
@@ -57,14 +60,9 @@ docker pull "$bootstrap_image" >&2
 
 exec docker run --rm -i --pull never --network=host \
     -e INFRALINK_HOST_UUID \
-    -e INFRALINK_REGISTRY=/var/lib/infralink/registry \
-    -e INFRALINK_EDGES=/var/lib/infralink/registry/network/main-dev/edges/edges.yml \
-    -e INFRALINK_OBSERVATION_PLAN=/var/lib/infralink/registry/operations/observation/core-plan.json \
-    -e INFRALINK_ADAPTER_BINDINGS=/var/lib/infralink/registry/operations/observation/adapter-bindings.yml \
-    -e INFRALINK_GATUS_FRAGMENT=/var/lib/infralink/registry/operations/observation/rendered/gatus/core-dependencies.yml \
-    -e INFRALINK_CONTROL_ROOT=/app \
+    -e INFRALINK_REGISTRY_REPO_URL \
+    -e INFRALINK_REGISTRY_REF \
     -e INFRALINK_GATUS_URL \
     -e INFRALINK_GATUS_TOKEN \
     "${operator_mounts[@]}" \
-    --entrypoint /usr/local/bin/infralink \
-    "$bootstrap_image" "$@"
+    "$bootstrap_image" operator "$@"

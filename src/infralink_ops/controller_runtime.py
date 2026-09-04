@@ -24,6 +24,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import yaml
+from infralink.cli.errors import CliFailure, ErrorCode, ExitCode
+from infralink.cli.output import command_context, error_envelope
 
 from infralink_ops import (
     controller_artifacts,
@@ -46,8 +48,10 @@ from infralink_ops.image_resolution import (
     resolve_host_images,
 )
 from infralink_ops.registry_checkout import (
+    RegistryCheckout,
     RegistryCheckoutError,
     fetch_configured_registry,
+    inspect_configured_registry,
     verify_registry_revision,
 )
 
@@ -96,6 +100,14 @@ class ControllerContext:
     textfile_directory: Path
     handoff_digest: str | None
     environment: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class ReconciledRegistry:
+    """Clean Registry cache plus immutable controller evidence from normal reconcile."""
+
+    checkout: RegistryCheckout
+    controller_reference: str
 
 
 def _payload(*, error: str | None = None, result: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -384,6 +396,135 @@ def _handoff(
             exit_code=completed.returncode,
             publish_evidence=completed.returncode != 78,
         )
+
+
+def _operator_handoff(
+    context: ControllerContext, *, controller_digest: str, arguments: list[str]
+) -> int:
+    """Run the selected controller's public CLI without applying configuration."""
+
+    command = ["docker", "run", "--rm", "-i", "--network=host"]
+    environment = {
+        "INFRALINK_HOST_UUID": context.host_uuid,
+        "INFRALINK_REGISTRY": str(context.registry_root),
+        "INFRALINK_EDGES": str(context.registry_root / "network/main-dev/edges/edges.yml"),
+        "INFRALINK_OBSERVATION_PLAN": str(
+            context.registry_root / "operations/observation/core-plan.json"
+        ),
+        "INFRALINK_ADAPTER_BINDINGS": str(
+            context.registry_root / "operations/observation/adapter-bindings.yml"
+        ),
+        "INFRALINK_GATUS_FRAGMENT": str(
+            context.registry_root / "operations/observation/rendered/gatus/core-dependencies.yml"
+        ),
+        "INFRALINK_CONTROL_ROOT": "/app",
+    }
+    for name in ("INFRALINK_GATUS_URL", "INFRALINK_GATUS_TOKEN"):
+        if value := context.environment.get(name):
+            environment[name] = value
+    for name, value in environment.items():
+        command.extend(["-e", f"{name}={value}"])
+
+    mounts = [
+        (context.registry_root, context.registry_root, True),
+        (context.runtime_root, context.runtime_root, False),
+        (Path("/var/log/infralink"), Path("/var/log/infralink"), False),
+    ]
+    ssh_directory = Path("/root/.ssh")
+    if ssh_directory.is_dir():
+        mounts.append((ssh_directory, ssh_directory, True))
+    for source, destination, readonly in mounts:
+        mount = f"type=bind,src={source},dst={destination}"
+        command.extend(["--mount", f"{mount},readonly" if readonly else mount])
+    completed = subprocess.run(
+        [*command, "--entrypoint", "/usr/local/bin/infralink", controller_digest, *arguments],
+        check=False,
+    )
+    return completed.returncode
+
+
+def _controller_repository(reference: str) -> str:
+    source = reference.split("@", 1)[0]
+    return source if "@" in reference else source.rsplit(":", 1)[0]
+
+
+def _reconciled_registry(context: ControllerContext) -> ReconciledRegistry:
+    """Require cache evidence written by the normal configured reconcile path."""
+
+    checkout = inspect_configured_registry(
+        context.registry_root,
+        configured_remote=context.registry_remote,
+    )
+    evidence_path = context.runtime_root / "reconcile-result.yml"
+    try:
+        evidence = yaml.safe_load(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as error:
+        raise ControllerRuntimeError("operator_registry_evidence_unavailable") from error
+    if not isinstance(evidence, dict) or any(
+        evidence.get(name) != value
+        for name, value in {
+            "status": "success",
+            "host_uuid": context.host_uuid,
+            "registry_head": checkout.revision,
+            "registry_ref": context.registry_ref,
+            "registry_repo_url": context.registry_remote,
+        }.items()
+    ):
+        raise ControllerRuntimeError("operator_registry_evidence_unavailable")
+    controller_reference = evidence.get("controller_reference")
+    if (
+        not isinstance(controller_reference, str)
+        or re.fullmatch(r".+@sha256:[0-9a-f]{64}", controller_reference) is None
+    ):
+        raise ControllerRuntimeError("operator_registry_evidence_unavailable")
+    declared_controller = resolve_controller_reference(
+        checkout.root, context.host_uuid, expected_revision=checkout.revision
+    )
+    if _controller_repository(controller_reference) != _controller_repository(declared_controller):
+        raise ControllerRuntimeError("operator_registry_evidence_unavailable")
+    return ReconciledRegistry(checkout=checkout, controller_reference=controller_reference)
+
+
+def _operator_error(arguments: list[str]) -> dict[str, Any]:
+    """Return the public CLI envelope when seed transport cannot hand off."""
+
+    context = command_context(
+        ["infralink", *arguments],
+        path=[],
+        args={},
+        flags=[argument for argument in arguments if argument.startswith("-")],
+        resolved={"transport": "configured_controller"},
+    )
+    return error_envelope(
+        context,
+        CliFailure(
+            code=ErrorCode.PROVIDER_UNAVAILABLE,
+            message="The configured controller runtime is unavailable",
+            exit_code=ExitCode.PROVIDER_ERROR,
+            fix="Run the normal host reconcile, then retry the command.",
+            details={"provider": "configured_controller"},
+        ),
+    )
+
+
+def operator(
+    arguments: list[str], *, environ: Mapping[str, str]
+) -> tuple[dict[str, Any] | None, int]:
+    """Read the current reconciled revision then execute its selected public CLI image."""
+
+    try:
+        context = controller_context(environ)
+        with _reconcile_lock(context):
+            reconciled = _reconciled_registry(context)
+            # Reconcile cleanup may have pruned the stopped controller image.
+            # Restore only the immutable digest evidenced by that reconcile;
+            # a public command must never re-resolve a mutable controller tag.
+            controller_digest = _controller_digest(reconciled.controller_reference, pull=True)
+        return None, _operator_handoff(
+            context, controller_digest=controller_digest, arguments=arguments
+        )
+    except (ControllerRuntimeError, RegistryCheckoutError, ImageResolutionError):
+        return _operator_error(arguments), int(ExitCode.PROVIDER_ERROR)
 
 
 def _secret_environment(context: ControllerContext, revision: str) -> dict[str, str]:
@@ -889,9 +1030,19 @@ def main(
         return _payload(error=str(error)), status
 
 
-if __name__ == "__main__":
-    payload, status = main()
-    import yaml
+def cli() -> int:
+    """Run the private controller runtime while preserving public CLI output unchanged."""
 
+    arguments = list(sys.argv[1:])
+    if arguments and arguments[0] == "operator":
+        payload, status = operator(arguments[1:], environ=os.environ)
+        if payload is not None:
+            sys.stdout.write(yaml.safe_dump(payload, sort_keys=False))
+        return status
+    payload, status = main(arguments)
     sys.stdout.write(yaml.safe_dump(payload, sort_keys=False))
-    raise SystemExit(status)
+    return status
+
+
+if __name__ == "__main__":
+    raise SystemExit(cli())
