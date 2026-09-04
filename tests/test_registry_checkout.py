@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from infralink_ops.registry_checkout import RegistryCheckoutError, fetch_configured_registry
+from infralink_ops.registry_checkout import (
+    RegistryCheckoutError,
+    fetch_configured_registry,
+    inspect_configured_registry,
+)
 
 
 def _git(*argv: str, cwd: Path) -> str:
@@ -54,6 +58,16 @@ def test_fetches_declared_ref_and_returns_exact_detached_revision(tmp_path: Path
         ["git", "symbolic-ref", "-q", "HEAD"], cwd=registry, capture_output=True, text=True
     )
     assert detached.returncode == 1
+
+
+def test_inspects_a_clean_configured_checkout_without_fetching_or_selecting(tmp_path: Path) -> None:
+    origin, registry, _identity, _known_hosts = _checkout(tmp_path)
+    expected = _git("rev-parse", "HEAD", cwd=registry)
+
+    result = inspect_configured_registry(registry, configured_remote=str(origin))
+
+    assert result.revision == expected
+    assert _git("rev-parse", "HEAD", cwd=registry) == expected
 
 
 def test_discards_dirty_runtime_cache_before_converging_to_configured_ref(tmp_path: Path) -> None:

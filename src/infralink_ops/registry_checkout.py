@@ -43,6 +43,19 @@ def verify_registry_revision(registry_root: Path, *, expected_revision: str) -> 
     return RegistryCheckout(root=root, revision=revision)
 
 
+def inspect_configured_registry(registry_root: Path, *, configured_remote: str) -> RegistryCheckout:
+    """Read one clean existing configured checkout without fetching or selecting state."""
+
+    root = registry_root.resolve()
+    _require_existing_checkout(root)
+    if _git(root, "remote", "get-url", "origin") != configured_remote:
+        raise RegistryCheckoutError("registry checkout origin does not match declared remote")
+    revision = _git(root, "rev-parse", "HEAD")
+    if len(revision) != 40 or any(character not in "0123456789abcdef" for character in revision):
+        raise RegistryCheckoutError("registry checkout did not resolve to a full SHA-1 revision")
+    return verify_registry_revision(root, expected_revision=revision)
+
+
 def fetch_configured_registry(
     registry_root: Path,
     *,

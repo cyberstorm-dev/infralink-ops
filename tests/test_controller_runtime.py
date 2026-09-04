@@ -56,6 +56,255 @@ def test_private_runtime_rejects_unknown_modes() -> None:
     }
 
 
+def test_operator_handoff_uses_the_reconciled_immutable_controller_then_executes_the_selected_cli(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime = tmp_path / "runtime"
+    registry = tmp_path / "registry"
+    runtime.mkdir()
+    registry.mkdir()
+    monkeypatch.setattr(controller_runtime, "RUNTIME_ROOT", runtime)
+    monkeypatch.setattr(controller_runtime, "REGISTRY_ROOT", registry)
+    calls: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        controller_runtime,
+        "_reconciled_registry",
+        lambda context: (
+            calls.append(("inspect", context))
+            or controller_runtime.ReconciledRegistry(
+                checkout=type(
+                    "Checkout", (), {"root": context.registry_root, "revision": REVISION}
+                )(),
+                controller_reference=DIGEST,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        controller_runtime,
+        "_controller_digest",
+        lambda reference, *, pull: calls.append(("controller_digest", (reference, pull))) or DIGEST,
+    )
+    monkeypatch.setattr(
+        controller_runtime,
+        "_operator_handoff",
+        lambda _context, *, controller_digest, arguments: (
+            calls.append(("operator_handoff", (controller_digest, arguments))) or 0
+        ),
+    )
+
+    payload, status = controller_runtime.operator(
+        ["doctor", "host", "example"], environ=_environment()
+    )
+
+    assert payload is None
+    assert status == 0
+    assert [name for name, _value in calls] == [
+        "inspect",
+        "controller_digest",
+        "operator_handoff",
+    ]
+    # Successful reconcile may prune the stopped controller image.  The
+    # operator transport restores only the evidence-bound digest, never a tag.
+    assert calls[1] == ("controller_digest", (DIGEST, True))
+    assert calls[-1] == ("operator_handoff", (DIGEST, ["doctor", "host", "example"]))
+
+
+def test_operator_requires_current_successful_reconcile_evidence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    context = controller_runtime.ControllerContext(
+        host_uuid=HOST_ID,
+        registry_remote="ssh://git@example.invalid/infra-registry.git",
+        registry_ref="main",
+        registry_root=tmp_path / "registry",
+        runtime_root=tmp_path / "runtime",
+        services_root=tmp_path / "services",
+        registry_key=tmp_path / "registry-read",
+        registry_known_hosts=tmp_path / "registry-known-hosts",
+        host_root=tmp_path,
+        textfile_directory=tmp_path,
+        handoff_digest=None,
+        environment=_environment(),
+    )
+    context.runtime_root.mkdir()
+    monkeypatch.setattr(
+        controller_runtime,
+        "inspect_configured_registry",
+        lambda *_args, **_kwargs: type(
+            "Checkout", (), {"root": context.registry_root, "revision": REVISION}
+        )(),
+    )
+    (context.runtime_root / "reconcile-result.yml").write_text(
+        "\n".join(
+            (
+                "status: success",
+                f"host_uuid: {HOST_ID}",
+                f"registry_head: {REVISION}",
+                "registry_ref: main",
+                "registry_repo_url: ssh://git@example.invalid/infra-registry.git",
+                f"controller_reference: {DIGEST}",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        controller_runtime,
+        "resolve_controller_reference",
+        lambda *_args, **_kwargs: "ghcr.io/example/infralink-controller:head",
+    )
+
+    reconciled = controller_runtime._reconciled_registry(context)
+
+    assert reconciled.checkout.revision == REVISION
+    assert reconciled.controller_reference == DIGEST
+
+
+def test_operator_rejects_reconcile_evidence_from_a_different_controller_repository(
+    tmp_path: Path, monkeypatch
+) -> None:
+    context = controller_runtime.ControllerContext(
+        host_uuid=HOST_ID,
+        registry_remote="ssh://git@example.invalid/infra-registry.git",
+        registry_ref="main",
+        registry_root=tmp_path / "registry",
+        runtime_root=tmp_path / "runtime",
+        services_root=tmp_path / "services",
+        registry_key=tmp_path / "registry-read",
+        registry_known_hosts=tmp_path / "registry-known-hosts",
+        host_root=tmp_path,
+        textfile_directory=tmp_path,
+        handoff_digest=None,
+        environment=_environment(),
+    )
+    context.runtime_root.mkdir()
+    monkeypatch.setattr(
+        controller_runtime,
+        "inspect_configured_registry",
+        lambda *_args, **_kwargs: type(
+            "Checkout", (), {"root": context.registry_root, "revision": REVISION}
+        )(),
+    )
+    monkeypatch.setattr(
+        controller_runtime,
+        "resolve_controller_reference",
+        lambda *_args, **_kwargs: "ghcr.io/other/controller:head",
+    )
+    (context.runtime_root / "reconcile-result.yml").write_text(
+        "\n".join(
+            (
+                "status: success",
+                f"host_uuid: {HOST_ID}",
+                f"registry_head: {REVISION}",
+                "registry_ref: main",
+                "registry_repo_url: ssh://git@example.invalid/infra-registry.git",
+                f"controller_reference: {DIGEST}",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        controller_runtime.ControllerRuntimeError,
+        match="operator_registry_evidence_unavailable",
+    ):
+        controller_runtime._reconciled_registry(context)
+
+
+def test_operator_returns_a_public_error_envelope_when_handoff_cannot_start(monkeypatch) -> None:
+    monkeypatch.setattr(
+        controller_runtime,
+        "_reconciled_registry",
+        lambda _context: (_ for _ in ()).throw(
+            controller_runtime.ControllerRuntimeError("operator_registry_evidence_unavailable")
+        ),
+    )
+
+    payload, status = controller_runtime.operator(
+        ["doctor", "host", "example"], environ=_environment()
+    )
+
+    assert status == 4
+    assert payload is not None
+    assert payload["schema_version"] == "infralink.cli/v1"
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "provider_unavailable"
+    assert payload["command"]["raw"] == "infralink doctor host example"
+
+
+def test_operator_handoff_executes_the_selected_controller_public_entrypoint(
+    tmp_path: Path, monkeypatch
+) -> None:
+    context = controller_runtime.ControllerContext(
+        host_uuid=HOST_ID,
+        registry_remote="ssh://git@example.invalid/infra-registry.git",
+        registry_ref="main",
+        registry_root=tmp_path / "registry",
+        runtime_root=tmp_path / "runtime",
+        services_root=tmp_path / "services",
+        registry_key=tmp_path / "registry-read",
+        registry_known_hosts=tmp_path / "registry-known-hosts",
+        host_root=tmp_path,
+        textfile_directory=tmp_path,
+        handoff_digest=None,
+        environment={
+            **_environment(),
+            "INFRALINK_GATUS_URL": "http://gatus.example.invalid",
+        },
+    )
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        controller_runtime.subprocess,
+        "run",
+        lambda command, **_kwargs: (
+            calls.append(command) or subprocess.CompletedProcess(command, 0, "", "")
+        ),
+    )
+
+    status = controller_runtime._operator_handoff(
+        context,
+        controller_digest=DIGEST,
+        arguments=["doctor", "host", "example"],
+    )
+
+    assert status == 0
+    command = calls[0]
+    assert command[:5] == ["docker", "run", "--rm", "-i", "--network=host"]
+    edges = context.registry_root / "network" / "main-dev" / "edges" / "edges.yml"
+    observation_plan = context.registry_root / "operations" / "observation" / "core-plan.json"
+    adapter_bindings = context.registry_root / "operations" / "observation" / "adapter-bindings.yml"
+    gatus_fragment = (
+        context.registry_root
+        / "operations"
+        / "observation"
+        / "rendered"
+        / "gatus"
+        / "core-dependencies.yml"
+    )
+    expected_environment = {
+        f"INFRALINK_HOST_UUID={HOST_ID}",
+        f"INFRALINK_REGISTRY={context.registry_root}",
+        f"INFRALINK_EDGES={edges}",
+        f"INFRALINK_OBSERVATION_PLAN={observation_plan}",
+        f"INFRALINK_ADAPTER_BINDINGS={adapter_bindings}",
+        f"INFRALINK_GATUS_FRAGMENT={gatus_fragment}",
+        "INFRALINK_CONTROL_ROOT=/app",
+        "INFRALINK_GATUS_URL=http://gatus.example.invalid",
+    }
+    assert expected_environment.issubset(command)
+    assert f"type=bind,src={context.registry_root},dst={context.registry_root},readonly" in command
+    assert f"type=bind,src={context.runtime_root},dst={context.runtime_root}" in command
+    assert command[-6:] == [
+        "--entrypoint",
+        "/usr/local/bin/infralink",
+        DIGEST,
+        "doctor",
+        "host",
+        "example",
+    ]
+
+
 def test_secret_resolution_failure_has_a_safe_typed_diagnostic(monkeypatch) -> None:
     context = controller_runtime.controller_context(_environment(handoff=True))
 
