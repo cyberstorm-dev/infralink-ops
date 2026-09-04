@@ -3,8 +3,6 @@ from __future__ import annotations
 import stat
 from pathlib import Path
 
-import pytest
-
 SYSTEMD_RELOAD = [
     "nsenter",
     "--target",
@@ -106,59 +104,6 @@ def test_refresh_retires_the_legacy_public_looking_launcher_after_unit_reload(
     assert payload["result"]["retired_assets"] == ["/usr/local/sbin/infralink-host"]
     assert not legacy.exists()
     assert (host_root / "usr/libexec/infralink/runtime").is_file()
-
-
-def test_transition_controller_seed_replaces_only_the_declared_seed_atomically(
-    tmp_path: Path,
-) -> None:
-    import infralink_ops.controller_host_interface as host_interface
-
-    host_root = tmp_path / "host"
-    host_environment = host_root / "etc/infralink/host.env"
-    host_environment.parent.mkdir(parents=True)
-    host_environment.write_text(
-        "INFRALINK_HOST_UUID=9157ddeb-cb6d-4d55-8252-9db358f5d932\n"
-        "BWS_ACCESS_TOKEN='secret value'\n"
-        "INFRALINK_CONTROLLER_IMAGE=ghcr.io/relax-dot-gg/infralink-controller:main\n"
-        "INFRALINK_REGISTRY_REF=main\n",
-        encoding="utf-8",
-    )
-    host_environment.chmod(0o600)
-    selected = "ghcr.io/cyberstorm-dev/infralink-ops-controller@sha256:" + "a" * 64
-
-    result = host_interface.transition_controller_seed(host_root, selected)
-
-    assert result == {"changed": True}
-    assert host_environment.read_text(encoding="utf-8") == (
-        "INFRALINK_HOST_UUID=9157ddeb-cb6d-4d55-8252-9db358f5d932\n"
-        "BWS_ACCESS_TOKEN='secret value'\n"
-        f"INFRALINK_CONTROLLER_IMAGE={selected}\n"
-        "INFRALINK_REGISTRY_REF=main\n"
-    )
-    assert stat.S_IMODE(host_environment.stat().st_mode) == 0o600
-
-
-def test_transition_controller_seed_rejects_ambiguous_or_nonimmutable_host_environment(
-    tmp_path: Path,
-) -> None:
-    import infralink_ops.controller_host_interface as host_interface
-
-    host_root = tmp_path / "host"
-    host_environment = host_root / "etc/infralink/host.env"
-    host_environment.parent.mkdir(parents=True)
-    original = (
-        "INFRALINK_CONTROLLER_IMAGE=ghcr.io/one/controller:main\n"
-        "INFRALINK_CONTROLLER_IMAGE=ghcr.io/two/controller:main\n"
-    )
-    host_environment.write_text(original, encoding="utf-8")
-
-    with pytest.raises(host_interface.HostInterfaceError, match="controller_seed_invalid"):
-        host_interface.transition_controller_seed(
-            host_root,
-            "ghcr.io/cyberstorm-dev/infralink-ops-controller@sha256:" + "a" * 64,
-        )
-
-    assert host_environment.read_text(encoding="utf-8") == original
 
 
 def test_refresh_preflights_every_destination_before_writing(tmp_path: Path, monkeypatch) -> None:

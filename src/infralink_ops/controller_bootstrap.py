@@ -44,7 +44,6 @@ class BootstrapConfiguration:
     """Explicit portable inputs required to initialize a host controller."""
 
     host_uuid: str
-    controller_image: str
     bws_access_token: str
     deploy_key_secret_id: str
     registry_remote: str
@@ -61,7 +60,6 @@ def _host_root(path: Path) -> Path:
 def _configuration(environ: Mapping[str, str], *, host_root: Path) -> BootstrapConfiguration:
     required = {
         "INFRALINK_HOST_UUID": "host_uuid",
-        "INFRALINK_CONTROLLER_IMAGE": "controller_image",
         "BWS_ACCESS_TOKEN": "bws_access_token",
         "INFRALINK_REGISTRY_DEPLOY_KEY_SECRET_ID": "deploy_key_secret_id",
         "INFRALINK_REGISTRY_REPO_URL": "registry_remote",
@@ -186,7 +184,6 @@ def _read_bws_secret(secret_id: str) -> str:
 def _host_environment(configuration: BootstrapConfiguration) -> str:
     values = {
         "INFRALINK_HOST_UUID": configuration.host_uuid,
-        "INFRALINK_CONTROLLER_IMAGE": configuration.controller_image,
         "BWS_ACCESS_TOKEN": configuration.bws_access_token,
         "INFRALINK_REGISTRY_DEPLOY_KEY_SECRET_ID": configuration.deploy_key_secret_id,
         "INFRALINK_REGISTRY_REPO_URL": configuration.registry_remote,

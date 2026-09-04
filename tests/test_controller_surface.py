@@ -17,7 +17,6 @@ def _healthy_payload() -> dict[str, object]:
         "reason": "controller_reconcile_evidence_present",
         "evidence": {
             "host_uuid": "11111111-1111-4111-8111-111111111111",
-            "controller_image": "ghcr.io/relax-dot-gg/infralink-controller:main",
             "controller": {"reference": None, "digest": None},
             "registry": {"path": "/var/lib/infralink/registry", "ref": "main", "head": None},
         },

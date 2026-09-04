@@ -66,7 +66,6 @@ def _payload(
         "reason": reason,
         "evidence": {
             "host_uuid": environment.get("INFRALINK_HOST_UUID"),
-            "controller_image": environment.get("INFRALINK_CONTROLLER_IMAGE"),
             "controller": {"reference": None, "digest": None},
             "registry": {
                 "path": str(registry),
@@ -225,9 +224,6 @@ def main(argv: list[str] | None = None) -> tuple[dict[str, Any], int]:
         head=None,
     )
     host_id = environment.get("INFRALINK_HOST_UUID")
-    if not environment.get("INFRALINK_CONTROLLER_IMAGE"):
-        payload["reason"] = "controller_image_invalid"
-        return payload, 78
     if not registry.is_dir() or not (registry / ".git").exists():
         payload["reason"] = "registry_checkout_missing"
         return payload, 78

@@ -17,7 +17,6 @@ DIGEST = "ghcr.io/example/infralink-controller@sha256:" + "b" * 64
 def _environment(*, handoff: bool = False) -> dict[str, str]:
     values = {
         "INFRALINK_HOST_UUID": HOST_ID,
-        "INFRALINK_CONTROLLER_IMAGE": "ghcr.io/example/infralink-controller:main",
         "INFRALINK_REGISTRY_REPO_URL": "ssh://git@example.invalid/infra-registry.git",
         "INFRALINK_REGISTRY_REF": "main",
     }
@@ -64,10 +63,6 @@ def test_inner_reconcile_uses_one_handoff_revision_and_publishes_success(
     monkeypatch.setattr(controller_runtime, "RUNTIME_ROOT", runtime)
     monkeypatch.setattr(controller_runtime, "REGISTRY_ROOT", tmp_path / "registry")
     monkeypatch.setattr(controller_runtime, "SERVICES_ROOT", tmp_path / "services")
-    monkeypatch.setattr(
-        controller_runtime, "_transition_handed_off_controller", lambda *_args: None
-    )
-
     applied: list[tuple[str, str]] = []
     published: list[tuple[str, str, dict[str, object]]] = []
     monkeypatch.setattr(
@@ -101,124 +96,6 @@ def test_inner_reconcile_uses_one_handoff_revision_and_publishes_success(
     assert payload["result"]["registry_revision"] == REVISION
     assert applied == [(REVISION, DIGEST)]
     assert published == [(REVISION, DIGEST, {"status": "ok"})]
-
-
-def test_handoff_reconcile_transitions_the_host_seed_before_applying_services(
-    tmp_path: Path, monkeypatch
-) -> None:
-    runtime = tmp_path / "runtime"
-    runtime.mkdir()
-    monkeypatch.setattr(controller_runtime, "RUNTIME_ROOT", runtime)
-    monkeypatch.setattr(controller_runtime, "REGISTRY_ROOT", tmp_path / "registry")
-    monkeypatch.setattr(
-        controller_runtime,
-        "resolve_controller_reference",
-        lambda *_args, **_kwargs: "ghcr.io/example/infralink-controller:main",
-    )
-    monkeypatch.setattr(controller_runtime, "_controller_digest", lambda *_args, **_kwargs: DIGEST)
-    transitions: list[list[str]] = []
-    monkeypatch.setattr(
-        controller_runtime.subprocess,
-        "run",
-        lambda command, **_kwargs: (
-            transitions.append(command)
-            or subprocess.CompletedProcess(
-                command,
-                0,
-                stdout="schema_version: infralink.ops.controller-host-transition/v1\nok: true\n",
-            )
-        ),
-    )
-    applied: list[bool] = []
-    monkeypatch.setattr(
-        controller_runtime,
-        "_inner_reconcile",
-        lambda *_args: (
-            applied.append(True)
-            or {
-                "phase": "apply",
-                "status": "applied",
-                "registry_revision": REVISION,
-                "actions": [],
-                "evidence": [],
-            }
-        ),
-    )
-    monkeypatch.setattr(
-        controller_runtime.controller_images, "prune_unused_images", lambda _: ({}, 0)
-    )
-    monkeypatch.setattr(controller_runtime, "_publish_success", lambda *_args, **_kwargs: None)
-
-    payload, status = controller_runtime.main(["reconcile"], environ=_environment(handoff=True))
-
-    assert status == 0
-    assert payload["ok"] is True
-    assert len(transitions) == 1
-    command = transitions[0]
-    assert "--privileged" in command
-    assert "--network=none" in command
-    assert command[command.index("--entrypoint") + 1] == "python"
-    assert "BWS_ACCESS_TOKEN" not in command
-    assert DIGEST in command
-    assert "infralink_ops.controller_host_transition" in command
-    image_index = command.index(DIGEST)
-    assert command[image_index + 1 :] == [
-        "-m",
-        "infralink_ops.controller_host_transition",
-        "transition",
-        "--host-root",
-        "/infralink-host-interface",
-        "--controller-reference",
-        DIGEST,
-    ]
-    assert "type=bind,src=/etc/infralink,dst=/infralink-host-interface/etc/infralink" in command
-    assert "type=bind,src=/usr/libexec,dst=/infralink-host-interface/usr/libexec" in command
-    assert (
-        "type=bind,src=/dev/null,dst=/infralink-host-interface/etc/infralink/registry-read,readonly"
-        in command
-    )
-    assert (
-        "type=bind,src=/dev/null,dst=/infralink-host-interface/etc/infralink/registry-known_hosts,readonly"
-        in command
-    )
-    assert applied == [True]
-
-
-def test_handoff_seed_transition_failure_stops_before_service_apply(
-    tmp_path: Path, monkeypatch
-) -> None:
-    runtime = tmp_path / "runtime"
-    runtime.mkdir()
-    monkeypatch.setattr(controller_runtime, "RUNTIME_ROOT", runtime)
-    monkeypatch.setattr(controller_runtime, "REGISTRY_ROOT", tmp_path / "registry")
-    monkeypatch.setattr(
-        controller_runtime,
-        "resolve_controller_reference",
-        lambda *_args, **_kwargs: "ghcr.io/example/infralink-controller:main",
-    )
-    monkeypatch.setattr(controller_runtime, "_controller_digest", lambda *_args, **_kwargs: DIGEST)
-    helper_calls: list[bool] = []
-    monkeypatch.setattr(
-        controller_runtime.subprocess,
-        "run",
-        lambda *_args, **_kwargs: (
-            helper_calls.append(True) or subprocess.CompletedProcess([], 78, stdout="ok: false\n")
-        ),
-    )
-    applied: list[bool] = []
-    monkeypatch.setattr(controller_runtime, "_inner_reconcile", lambda *_args: applied.append(True))
-    failures: list[str] = []
-    monkeypatch.setattr(
-        controller_runtime, "_publish_failure", lambda _context, error: failures.append(error.stage)
-    )
-
-    payload, status = controller_runtime.main(["reconcile"], environ=_environment(handoff=True))
-
-    assert status == 78
-    assert payload["error"] == {"code": "controller_seed_transition_failed"}
-    assert applied == []
-    assert failures == ["host_interface"]
-    assert helper_calls == [True]
 
 
 def test_invalid_handoff_fails_before_any_apply_stage(tmp_path: Path, monkeypatch) -> None:
@@ -350,7 +227,6 @@ def test_firewall_apply_creates_the_owned_table_before_replacing_it(
 ) -> None:
     context = controller_runtime.ControllerContext(
         host_uuid=HOST_ID,
-        controller_image="ghcr.io/example/infralink-controller:main",
         registry_remote="ssh://git@example.invalid/infra-registry.git",
         registry_ref="main",
         registry_root=tmp_path / "registry",
@@ -390,7 +266,6 @@ def test_inner_reconcile_rejects_a_digest_not_bound_to_the_declared_controller(
 ) -> None:
     context = controller_runtime.ControllerContext(
         host_uuid=HOST_ID,
-        controller_image="ghcr.io/example/infralink-controller:main",
         registry_remote="ssh://git@example.invalid/infra-registry.git",
         registry_ref="main",
         registry_root=tmp_path / "registry",
@@ -439,7 +314,6 @@ def test_handoff_mounts_host_var_lib_for_runtime_and_textfile_evidence(
 ) -> None:
     context = controller_runtime.ControllerContext(
         host_uuid=HOST_ID,
-        controller_image="ghcr.io/example/infralink-controller:main",
         registry_remote="ssh://git@example.invalid/infra-registry.git",
         registry_ref="main",
         registry_root=tmp_path / "var/lib/infralink/registry",
@@ -478,7 +352,6 @@ def test_invalid_rendered_compose_stops_before_firewall_or_service_mutation(
 ) -> None:
     context = controller_runtime.ControllerContext(
         host_uuid=HOST_ID,
-        controller_image="ghcr.io/example/infralink-controller:main",
         registry_remote="ssh://git@example.invalid/infra-registry.git",
         registry_ref="main",
         registry_root=tmp_path / "registry",
@@ -554,7 +427,6 @@ def test_invalid_rendered_compose_stops_before_firewall_or_service_mutation(
 def test_invalid_artifact_projection_preserves_live_services(tmp_path: Path, monkeypatch) -> None:
     context = controller_runtime.ControllerContext(
         host_uuid=HOST_ID,
-        controller_image="ghcr.io/example/infralink-controller:main",
         registry_remote="ssh://git@example.invalid/infra-registry.git",
         registry_ref="main",
         registry_root=tmp_path / "registry",
@@ -622,7 +494,6 @@ def test_all_representation_equivalent_services_still_remove_declared_orphans(
     )
     context = controller_runtime.ControllerContext(
         host_uuid=HOST_ID,
-        controller_image="ghcr.io/example/infralink-controller:main",
         registry_remote="ssh://git@example.invalid/infra-registry.git",
         registry_ref="main",
         registry_root=tmp_path / "registry",
