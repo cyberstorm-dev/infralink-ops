@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -66,6 +67,14 @@ def test_operator_handoff_uses_the_reconciled_immutable_controller_then_executes
     monkeypatch.setattr(controller_runtime, "RUNTIME_ROOT", runtime)
     monkeypatch.setattr(controller_runtime, "REGISTRY_ROOT", registry)
     calls: list[tuple[str, object]] = []
+    lock_modes: list[bool] = []
+
+    @contextmanager
+    def lock(_context: object, *, shared: bool = False):
+        lock_modes.append(shared)
+        yield
+
+    monkeypatch.setattr(controller_runtime, "_reconcile_lock", lock)
     monkeypatch.setattr(
         controller_runtime,
         "_reconciled_registry",
@@ -107,6 +116,7 @@ def test_operator_handoff_uses_the_reconciled_immutable_controller_then_executes
     # operator transport restores only the evidence-bound digest, never a tag.
     assert calls[1] == ("controller_digest", (DIGEST, True))
     assert calls[-1] == ("operator_handoff", (DIGEST, ["doctor", "host", "example"]))
+    assert lock_modes == [True]
 
 
 def test_operator_requires_current_successful_reconcile_evidence(

@@ -204,8 +204,8 @@ def _is_ops_controller(reference: str) -> bool:
 
 
 @contextmanager
-def _reconcile_lock(context: ControllerContext):
-    """Serialize one host's runtime mutation without selecting desired state."""
+def _reconcile_lock(context: ControllerContext, *, shared: bool = False):
+    """Guard the reconciled cache while allowing concurrent read-only operators."""
 
     import fcntl
 
@@ -213,7 +213,8 @@ def _reconcile_lock(context: ControllerContext):
     lock = (context.runtime_root / "reconcile.lock").open("a+", encoding="utf-8")
     try:
         try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+            fcntl.flock(lock.fileno(), mode | fcntl.LOCK_NB)
         except BlockingIOError as error:
             raise ControllerRuntimeError(
                 "controller_reconcile_in_progress", publish_evidence=False
@@ -528,7 +529,7 @@ def operator(
 
     try:
         context = controller_context(environ)
-        with _reconcile_lock(context):
+        with _reconcile_lock(context, shared=True):
             reconciled = _reconciled_registry(context)
             # Reconcile cleanup may have pruned the stopped controller image.
             # Restore only the immutable digest evidenced by that reconcile;
