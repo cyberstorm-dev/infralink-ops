@@ -673,6 +673,9 @@ def test_handoff_mounts_host_var_lib_for_runtime_and_textfile_evidence(
         environment=_environment(),
     )
     command: list[str] = []
+    legacy_runtime_root = tmp_path / "opt/infra"
+    legacy_runtime_root.mkdir(parents=True)
+    monkeypatch.setattr(controller_runtime, "LEGACY_RUNTIME_ROOT", legacy_runtime_root)
     monkeypatch.setattr(
         controller_runtime.subprocess,
         "run",
@@ -688,7 +691,7 @@ def test_handoff_mounts_host_var_lib_for_runtime_and_textfile_evidence(
 
     assert "type=bind,src=/var/lib,dst=/var/lib" in command
     assert "type=bind,src=/var/lib/infralink,dst=/var/lib/infralink" not in command
-    assert "type=bind,src=/opt/infra,dst=/opt/infra" in command
+    assert f"type=bind,src={legacy_runtime_root},dst={legacy_runtime_root}" in command
     assert "INFRALINK_HOST_ROOT=/infralink-host-interface" in command
     assert "type=bind,src=/usr/local,dst=/infralink-host-interface/usr/local" in command
     assert "type=bind,src=/usr/libexec,dst=/infralink-host-interface/usr/libexec" in command
@@ -732,6 +735,79 @@ def test_handoff_does_not_mount_opt_infra_for_a_legacy_controller(
     assert "type=bind,src=/opt/infra,dst=/opt/infra" not in command
     assert "INFRALINK_HOST_ROOT=/infralink-host-interface" not in command
     assert "type=bind,src=/usr/local,dst=/infralink-host-interface/usr/local" not in command
+
+
+def test_handoff_does_not_require_opt_infra_on_a_clean_v2_host(tmp_path: Path, monkeypatch) -> None:
+    context = controller_runtime.ControllerContext(
+        host_uuid=HOST_ID,
+        registry_remote="ssh://git@example.invalid/infra-registry.git",
+        registry_ref="main",
+        registry_root=tmp_path / "var/lib/infralink/registry",
+        runtime_root=tmp_path / "var/lib/infralink",
+        services_root=tmp_path / "opt/services",
+        registry_key=tmp_path / "etc/infralink/registry-read",
+        registry_known_hosts=tmp_path / "etc/infralink/registry-known_hosts",
+        host_root=tmp_path,
+        textfile_directory=tmp_path / "var/lib/node_exporter/textfile_collector",
+        handoff_digest=None,
+        environment=_environment(),
+    )
+    command: list[str] = []
+    monkeypatch.setattr(controller_runtime, "LEGACY_RUNTIME_ROOT", tmp_path / "opt/infra")
+    monkeypatch.setattr(
+        controller_runtime.subprocess,
+        "run",
+        lambda argv, **_kwargs: command.extend(argv) or subprocess.CompletedProcess(argv, 0),
+    )
+
+    controller_runtime._handoff(
+        context,
+        revision=REVISION,
+        controller_digest=DIGEST,
+        controller_reference="ghcr.io/cyberstorm-dev/infralink-ops-controller:main",
+    )
+
+    assert "type=bind,src=/opt/infra,dst=/opt/infra" not in command
+    assert "INFRALINK_HOST_ROOT=/infralink-host-interface" in command
+    assert "type=bind,src=/usr/local,dst=/infralink-host-interface/usr/local" in command
+
+
+def test_handoff_never_mounts_a_symlinked_legacy_runtime_root(tmp_path: Path, monkeypatch) -> None:
+    context = controller_runtime.ControllerContext(
+        host_uuid=HOST_ID,
+        registry_remote="ssh://git@example.invalid/infra-registry.git",
+        registry_ref="main",
+        registry_root=tmp_path / "var/lib/infralink/registry",
+        runtime_root=tmp_path / "var/lib/infralink",
+        services_root=tmp_path / "opt/services",
+        registry_key=tmp_path / "etc/infralink/registry-read",
+        registry_known_hosts=tmp_path / "etc/infralink/registry-known_hosts",
+        host_root=tmp_path,
+        textfile_directory=tmp_path / "var/lib/node_exporter/textfile_collector",
+        handoff_digest=None,
+        environment=_environment(),
+    )
+    target = tmp_path / "sensitive"
+    target.mkdir()
+    legacy_runtime_root = tmp_path / "opt/infra"
+    legacy_runtime_root.parent.mkdir()
+    legacy_runtime_root.symlink_to(target, target_is_directory=True)
+    monkeypatch.setattr(controller_runtime, "LEGACY_RUNTIME_ROOT", legacy_runtime_root)
+    command: list[str] = []
+    monkeypatch.setattr(
+        controller_runtime.subprocess,
+        "run",
+        lambda argv, **_kwargs: command.extend(argv) or subprocess.CompletedProcess(argv, 0),
+    )
+
+    controller_runtime._handoff(
+        context,
+        revision=REVISION,
+        controller_digest=DIGEST,
+        controller_reference="ghcr.io/cyberstorm-dev/infralink-ops-controller:main",
+    )
+
+    assert f"type=bind,src={legacy_runtime_root},dst={legacy_runtime_root}" not in command
 
 
 def test_retire_legacy_registry_removes_only_the_exact_obsolete_checkout(
