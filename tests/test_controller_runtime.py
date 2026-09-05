@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -313,6 +314,77 @@ def test_operator_handoff_executes_the_selected_controller_public_entrypoint(
         "host",
         "example",
     ]
+
+
+def test_operator_handoff_mounts_only_the_wrapper_created_local_evidence(
+    tmp_path: Path, monkeypatch, request: pytest.FixtureRequest
+) -> None:
+    local_evidence = Path(tempfile.mkdtemp(prefix="infralink-local-evidence.", dir="/tmp"))
+    request.addfinalizer(lambda: local_evidence.rmdir())
+    context = controller_runtime.ControllerContext(
+        host_uuid=HOST_ID,
+        registry_remote="ssh://git@example.invalid/infra-registry.git",
+        registry_ref="main",
+        registry_root=tmp_path / "registry",
+        runtime_root=tmp_path / "runtime",
+        services_root=tmp_path / "services",
+        registry_key=tmp_path / "registry-read",
+        registry_known_hosts=tmp_path / "registry-known-hosts",
+        host_root=tmp_path,
+        textfile_directory=tmp_path,
+        handoff_digest=None,
+        environment={
+            **_environment(),
+            "INFRALINK_LOCAL_EVIDENCE_SOURCE": str(local_evidence),
+        },
+    )
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        controller_runtime.subprocess,
+        "run",
+        lambda command, **_kwargs: (
+            calls.append(command) or subprocess.CompletedProcess(command, 0, "", "")
+        ),
+    )
+
+    controller_runtime._operator_handoff(
+        context,
+        controller_digest=DIGEST,
+        arguments=["host", "status", "example"],
+    )
+
+    command = calls[0]
+    assert "INFRALINK_LOCAL_EVIDENCE_DIR=/var/run/infralink-local-evidence" in command
+    assert (
+        f"type=bind,src={local_evidence},dst=/var/run/infralink-local-evidence,readonly" in command
+    )
+
+
+def test_operator_handoff_rejects_non_wrapper_local_evidence_source(tmp_path: Path) -> None:
+    context = controller_runtime.ControllerContext(
+        host_uuid=HOST_ID,
+        registry_remote="ssh://git@example.invalid/infra-registry.git",
+        registry_ref="main",
+        registry_root=tmp_path / "registry",
+        runtime_root=tmp_path / "runtime",
+        services_root=tmp_path / "services",
+        registry_key=tmp_path / "registry-read",
+        registry_known_hosts=tmp_path / "registry-known-hosts",
+        host_root=tmp_path,
+        textfile_directory=tmp_path,
+        handoff_digest=None,
+        environment={**_environment(), "INFRALINK_LOCAL_EVIDENCE_SOURCE": "/etc"},
+    )
+
+    with pytest.raises(
+        controller_runtime.ControllerRuntimeError,
+        match="operator_local_evidence_unavailable",
+    ):
+        controller_runtime._operator_handoff(
+            context,
+            controller_digest=DIGEST,
+            arguments=["host", "status", "example"],
+        )
 
 
 def test_secret_resolution_failure_has_a_safe_typed_diagnostic(monkeypatch) -> None:
