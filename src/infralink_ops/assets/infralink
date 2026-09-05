@@ -55,14 +55,38 @@ if [[ -d /root/.ssh ]]; then
     operator_mounts+=(--mount type=bind,src=/root/.ssh,dst=/root/.ssh,readonly)
 fi
 
+local_evidence_dir="$(mktemp -d /tmp/infralink-local-evidence.XXXXXX)"
+cleanup_local_evidence() {
+    rm -rf -- "$local_evidence_dir"
+}
+trap cleanup_local_evidence EXIT
+
+printf '%s\n' "$INFRALINK_HOST_UUID" > "$local_evidence_dir/host_uuid"
+systemctl show infralink-host-reconcile.timer \
+    -p ActiveState -p NextElapseUSecRealtime --no-pager \
+    > "$local_evidence_dir/systemd-timer.properties" 2>/dev/null || true
+systemctl show infralink-host-reconcile.service \
+    -p ActiveState -p Result -p ExecMainStatus --no-pager \
+    > "$local_evidence_dir/systemd-service.properties" 2>/dev/null || true
+if [[ -f /var/lib/infralink/reconcile-result.yml && ! -L /var/lib/infralink/reconcile-result.yml ]]; then
+    head -c 65536 /var/lib/infralink/reconcile-result.yml > "$local_evidence_dir/reconcile-result.yml"
+fi
+journalctl --quiet --no-pager --output=json -u infralink-host-reconcile.service -n 8 2>/dev/null \
+    | head -c 65536 > "$local_evidence_dir/journal.jsonl" || true
+operator_mounts+=(
+    --mount type=bind,src="$local_evidence_dir",dst="$local_evidence_dir",readonly
+)
+
 # Docker writes pull progress to stdout. Keep it off the typed CLI/MCP stream.
 docker pull "$bootstrap_image" >&2
 
-exec docker run --rm -i --pull never --network=host \
+docker run --rm -i --pull never --network=host \
     -e INFRALINK_HOST_UUID \
+    -e INFRALINK_LOCAL_EVIDENCE_SOURCE="$local_evidence_dir" \
     -e INFRALINK_REGISTRY_REPO_URL \
     -e INFRALINK_REGISTRY_REF \
     -e INFRALINK_GATUS_URL \
     -e INFRALINK_GATUS_TOKEN \
     "${operator_mounts[@]}" \
     "$bootstrap_image" operator "$@"
+exit $?

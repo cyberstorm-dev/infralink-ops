@@ -20,6 +20,15 @@ def test_host_interface_assets_are_packaged_with_canonical_runtime_contract() ->
     assert '"$bootstrap_image" operator "$@"' in operator_cli_source
     assert "-e INFRALINK_GATUS_URL" in operator_cli_source
     assert "-e INFRALINK_GATUS_TOKEN" in operator_cli_source
+    assert "INFRALINK_LOCAL_EVIDENCE_SOURCE" in operator_cli_source
+    assert "mktemp -d" in operator_cli_source
+    assert "infralink-host-reconcile.timer" in operator_cli_source
+    assert "infralink-host-reconcile.service" in operator_cli_source
+    assert "journalctl --quiet --no-pager --output=json -u" in operator_cli_source
+    assert 'head -c 65536 > "$local_evidence_dir/journal.jsonl"' in operator_cli_source
+    assert 'src="$local_evidence_dir"' in operator_cli_source
+    assert "--privileged" not in operator_cli_source
+    assert "--pid=host" not in operator_cli_source
     assert "INFRALINK_CONTROLLER_IMAGE" not in operator_cli_source
     assert "ghcr.io/cyberstorm-dev/infralink-ops-controller:main" in operator_cli_source
     runtime_source = runtime.read_text(encoding="utf-8")

@@ -437,6 +437,9 @@ def _operator_handoff(
     for name in ("INFRALINK_GATUS_URL", "INFRALINK_GATUS_TOKEN"):
         if value := context.environment.get(name):
             environment[name] = value
+    local_evidence_source = _local_evidence_source(context.environment)
+    if local_evidence_source is not None:
+        environment["INFRALINK_LOCAL_EVIDENCE_DIR"] = "/var/run/infralink-local-evidence"
     for name, value in environment.items():
         command.extend(["-e", f"{name}={value}"])
 
@@ -448,6 +451,9 @@ def _operator_handoff(
     ssh_directory = Path("/root/.ssh")
     if ssh_directory.is_dir():
         mounts.append((ssh_directory, ssh_directory, True))
+    if local_evidence_source is not None:
+        local_evidence_destination = Path(environment["INFRALINK_LOCAL_EVIDENCE_DIR"])
+        mounts.append((local_evidence_source, local_evidence_destination, True))
     for source, destination, readonly in mounts:
         mount = f"type=bind,src={source},dst={destination}"
         command.extend(["--mount", f"{mount},readonly" if readonly else mount])
@@ -456,6 +462,24 @@ def _operator_handoff(
         check=False,
     )
     return completed.returncode
+
+
+def _local_evidence_source(environment: Mapping[str, str]) -> Path | None:
+    """Accept only the fixed temporary directory created by the host wrapper."""
+
+    value = environment.get("INFRALINK_LOCAL_EVIDENCE_SOURCE")
+    if not value:
+        return None
+    path = Path(value)
+    if (
+        not path.is_absolute()
+        or path.parent != Path("/tmp")
+        or not path.name.startswith("infralink-local-evidence.")
+        or path.is_symlink()
+        or not path.is_dir()
+    ):
+        raise ControllerRuntimeError("operator_local_evidence_unavailable")
+    return path
 
 
 def _controller_repository(reference: str) -> str:
