@@ -29,6 +29,7 @@ def test_host_interface_assets_are_packaged_with_canonical_runtime_contract() ->
     assert "ghcr.io/cyberstorm-dev/infralink-ops-controller:main" in runtime_source
     assert "--privileged" in runtime_source
     assert "--pid=host" in runtime_source
+    assert "src=/opt/infra,dst=/opt/infra" in runtime_source
     assert "src=/root/.docker/config.json,dst=/root/.docker/config.json,readonly" in runtime_source
     assert "reconcile" in runtime_source
     assert "Usage:" not in runtime_source

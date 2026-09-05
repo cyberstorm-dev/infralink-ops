@@ -22,6 +22,7 @@ normal_mounts=(
     --mount type=bind,src=/etc/infralink/registry-known_hosts,dst=/etc/infralink/registry-known_hosts,readonly
     --mount type=bind,src=/var/lib/infralink/registry,dst=/var/lib/infralink/registry
     --mount type=bind,src=/var/lib,dst=/var/lib
+    --mount type=bind,src=/opt/infra,dst=/opt/infra
     --mount type=bind,src=/opt/services,dst=/opt/services
     --mount type=bind,src=/var/log,dst=/var/log
     --mount type=bind,src=/run,dst=/run
