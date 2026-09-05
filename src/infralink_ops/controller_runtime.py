@@ -59,6 +59,7 @@ SCHEMA_VERSION = "infralink.ops.controller-runtime/v1"
 REGISTRY_ROOT = Path("/var/lib/infralink/registry")
 RUNTIME_ROOT = Path("/var/lib/infralink")
 SERVICES_ROOT = Path("/opt/services")
+LEGACY_RUNTIME_ROOT = Path("/opt/infra")
 LEGACY_REGISTRY_ROOT = Path("/opt/infra/registry")
 REGISTRY_KEY = Path("/etc/infralink/registry-read")
 REGISTRY_KNOWN_HOSTS = Path("/etc/infralink/registry-known_hosts")
@@ -385,7 +386,10 @@ def _handoff(
         (Path("/root/.docker/config.json"), Path("/root/.docker/config.json"), True),
     ]
     if _is_ops_controller(controller_reference):
-        mounts.append((Path("/opt/infra"), Path("/opt/infra"), False))
+        # /opt/infra is runtime support, not desired state.  A clean V2 host
+        # need not retain the directory just to hand off reconciliation.
+        if LEGACY_RUNTIME_ROOT.is_dir() and not LEGACY_RUNTIME_ROOT.is_symlink():
+            mounts.append((LEGACY_RUNTIME_ROOT, LEGACY_RUNTIME_ROOT, False))
         mounts.extend(
             (
                 (Path("/usr/local"), Path("/infralink-host-interface/usr/local"), False),
